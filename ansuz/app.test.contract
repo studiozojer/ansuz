@@ -1,0 +1,11 @@
+test "choose a place, descend and return"
+  clock data
+  tap "next"
+  clock +100
+  expect text "place" == "The Returning"
+  tap "descend"
+  clock +2500
+  expect text "level" == "IN THE CLEARING"
+  tap "ascend"
+  clock +2500
+  expect text "level" == "ABOVE THE LAND"

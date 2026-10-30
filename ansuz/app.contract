@@ -1,0 +1,42 @@
+shape Hud
+  title: string
+  detail: string
+  selected: bool
+  entered: bool
+  travelling: bool
+  altitude: number
+
+component Ansuz
+  state again = false
+  state reduced = false
+  resource hud = exactSurface("world") as shape Hud
+  action restart
+    again = not again
+  action motion
+    reduced = not reduced
+  view
+    main width="100%" height="100%" background-color="#102b30" color="#f4eddc"
+      canvas surface=world(restart=again, reduced=reduced) testId="world" width="100%" height="100%" position="relative"
+        row position="absolute" top="env(safe-area-inset-top, 0px)" left=0 right=0 padding=20 justify-content="space-between" align-items="center" gap=12
+          column gap=3
+            text "ANSUZ" font-size="1.3rem" letter-spacing="0.22em" font-weight=600
+            text "an atlas of attention" font="-exact-caption1" color="#c3d1ca"
+          button press=restart testId="reset" aria-label="Return to the starting view" padding=12 border-radius=12 background-color="#29464a"
+            text "Recenter"
+        column position="absolute" bottom="env(safe-area-inset-bottom, 0px)" left=0 right=0 padding=20 gap=12 background-color="#102b30e8"
+          row align-items="center" justify-content="space-between" gap=12 flex-wrap="wrap"
+            text (hud.entered ? "IN THE CLEARING" : "ABOVE THE LAND") font="-exact-caption1" letter-spacing="0.12em" color="#c3d1ca" testId="level"
+            text "sample landscape" font="-exact-caption1" color="#c3d1ca"
+          text hud.title font="-exact-title2" testId="place"
+          text hud.detail font="-exact-subheadline" color="#c3d1ca"
+          row gap=12 flex-wrap="wrap"
+            button action="next" testId="next" padding=12 border-radius=12 background-color="#29464a" disabled=hud.travelling
+              text "Next clearing"
+            if hud.entered
+              button action="ascend" testId="ascend" padding=12 border-radius=12 background-color="#d9bd89" color="#102b30" disabled=hud.travelling
+                text "Ascend"
+            else
+              button action="descend" testId="descend" padding=12 border-radius=12 background-color="#d9bd89" color="#102b30" disabled=(not hud.selected or hud.travelling)
+                text (hud.travelling ? "Travelling…" : "Descend")
+            button press=motion testId="motion" padding=12
+              text (reduced ? "Gentle motion: on" : "Gentle motion")
