@@ -1,1 +1,9 @@
-{"app":{"id":"studio.zojer.ansuz","name":"Ansuz"},"game":{}}
+{
+  "app": {
+    "id": "studio.zojer.ansuz",
+    "name": "Ansuz"
+  },
+  "game": {
+    "assets": true
+  }
+}
