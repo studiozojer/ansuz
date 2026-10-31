@@ -25,7 +25,24 @@ Install missing browser/Rust tooling reported by that check, then from `ansuz/`:
 bun exact.mjs web
 ```
 
-Use its localhost URL in a WebGPU-capable browser. This is a standalone Exact app; Zhouyi is unchanged. Phone behavior and performance remain unverified. Native builds must use EAS Build and simulator checks EAS Simulator; do not use the SDK's local native build commands here.
+Use its localhost URL in a WebGPU-capable browser. This is a standalone Exact app; Zhouyi is unchanged. Local iPhone builds are authorized for Ansuz; simulator checks still use EAS Simulator.
+
+## Build locally for a paired iPhone
+
+Local iPhone builds were explicitly authorized on 2026-10-31. Use Xcode, Bun 1.4.2+, the SDK's pinned Rust toolchain, a paired iPhone in Developer Mode, and a development certificate/provisioning profile covering `studio.zojer.ansuz` and that phone. A valid team wildcard profile can cover this app without registering a new identifier. No EAS secret is needed locally when the SDK's dependencies are already cached or your local Git authentication can fetch them.
+
+After the SDK setup above, install its iPhone Rust target once:
+
+```sh
+(cd tooling/exact2 && rustup target add aarch64-apple-ios)
+npm run build:ios:local
+```
+
+To choose a particular phone, append `-- --phone "your phone name"`. If the right Bun version isn't on PATH, set `BUN=/path/to/bun` for the npm command. The underlying command is `bun ansuz/exact.mjs ios --device --run`: Exact builds, signs, installs, and launches the native app. It does not use `expo run:ios`, Metro, or Expo Go. This installs alongside Zhouyi, with separate local storage.
+
+Both local and EAS build commands first apply `tooling/patches/exact-xcode26.patch` to the pinned SDK. It fixes a Swift name collision and retains the existing audio-interruption handler supported by Xcode 26, removing references to iOS 27 APIs absent from that SDK. This deliberately leaves the SDK checkout modified; the gitlink remains pinned and the patch is tracked in Ansuz. The script accepts an already-applied patch and refuses a different SDK revision. Revisit these two fixes when upgrading Exact.
+
+Verified on 2026-10-31 with Xcode 26.5: compiled, signed, installed and launched on a paired iPhone 16 Pro. Inspected device screenshots of the atmospheric landscape and focused face. The device agent completed focus, editor open/cancel and return-to-landscape actions. Human touch gestures, keyboard editing, phone persistence and sustained performance still need a hands-on check. The five delivery tests pass.
 
 ## Install on iPhone with Expo EAS
 
@@ -45,9 +62,9 @@ First-build prerequisites:
 - Add `EXACT_GITHUB_TOKEN` as a **Secret** in this project's **preview** environment, with read access to `expo/snapback`. The pinned Exact SDK resolves that private Cargo dependency even though Ansuz uses local JSON notes. Do not put the token in source, app config, or a chat message.
 - Accept the current Apple Developer Program License Agreement for Zojer Studio (`497QWRKRQH`), then run `npx eas credentials:configure-build --platform ios --profile preview`. Reuse the studio's distribution certificate and create an ad-hoc profile for Ansuz including your phone. If needed, `npx eas device:create` registers a new device before building.
 
-As of 2026-10-31, the Expo project is linked and the registered iPhone `hazy` is visible. Apple signing setup stopped at Apple's “PLA Update available” error; the GitHub secret is also absent. No installable IPA or successful native build has been produced yet. These are setup blockers, not validated device behavior.
+As of 2026-10-31, the Expo project is linked and the registered iPhone `hazy` is visible. Apple signing setup stopped at Apple's “PLA Update available” error; the GitHub secret is also absent. No EAS IPA has been produced yet. These cloud setup blockers do not prevent a local development build when an existing certificate/profile covers the app and phone.
 
-For EAS Simulator, use `npm run build:simulator`. This profile needs the GitHub secret but no Apple distribution profile. The studio account has EAS Simulator access. Use the resulting build with EAS Simulator for the native walkthrough; an `.app` simulator artifact cannot be installed on a physical iPhone. Native compilation and simulator execution remain cloud-only.
+For EAS Simulator, use `npm run build:simulator`. This profile needs the GitHub secret but no Apple distribution profile. The studio account has EAS Simulator access. Use the resulting build with EAS Simulator for the native walkthrough; an `.app` simulator artifact cannot be installed on a physical iPhone. Simulator execution remains cloud-only.
 
 The custom workflows fetch Exact at the committed SDK pin, install its toolchain, compile the same `ansuz/` sources, and check the artifact's identity, version and platform before upload. The phone workflow imports only that build's credentials into a temporary worker keychain and cleans it up afterward. `.easignore` excludes credentials, local SDK checkouts and generated caches. App versions/build numbers are local in root `app.json` and passed to Exact; increment `expo.ios.buildNumber` for a new distributable build. `npm run check:delivery` checks identity consistency, local-build refusal, credential validation, and artifact rejection without compiling natively.
 

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Native compilation runs only on EAS's macOS workers.
+# This workflow runs on EAS; build:ios:local is the separate physical-phone path.
 set -euo pipefail
 set +x
 if [[ "${EAS_BUILD:-}" != "true" ]]; then
-  echo "Native builds run on EAS. Use npm run build:ios or npm run build:simulator." >&2
+  echo "This workflow runs on EAS. Use npm run build:ios or npm run build:simulator; for a paired phone use npm run build:ios:local." >&2
   exit 1
 fi
 mode="${1:-}"
@@ -42,6 +42,7 @@ if [[ "$(git -C tooling/exact2 rev-parse HEAD)" != "$exact_revision" ]]; then
   exit 1
 fi
 export PATH="$HOME/.cargo/bin:$PATH"
+bash scripts/patch-exact.sh
 if ! command -v rustup >/dev/null; then
   curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs -o "$exact_auth_dir/rustup.sh"
   sh "$exact_auth_dir/rustup.sh" -y --profile minimal --default-toolchain none

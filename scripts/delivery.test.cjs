@@ -15,10 +15,10 @@ test('EAS and Exact name the same independent app', () => {
   assert.equal(config.slug, 'ansuz');
 });
 
-test('native script refuses to compile locally before using credentials', () => {
+test('EAS workflow refuses local execution before using credentials', () => {
   const result = spawnSync('bash', ['scripts/build-exact-eas.sh', 'device'], { encoding:'utf8', env:{ ...process.env, EAS_BUILD:'' } });
   assert.equal(result.status, 1);
-  assert.match(result.stderr, /Native builds run on EAS/);
+  assert.match(result.stderr, /This workflow runs on EAS/);
 });
 
 test('signing function refuses local execution and incomplete signing targets', async () => {

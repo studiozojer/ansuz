@@ -6,7 +6,8 @@
   "scripts": {
     "build:ios": "eas build --platform ios --profile preview",
     "build:simulator": "eas build --platform ios --profile simulator",
-    "check:delivery": "node --test scripts/delivery.test.cjs"
+    "check:delivery": "node --test scripts/delivery.test.cjs",
+    "build:ios:local": "bash scripts/patch-exact.sh && \"${BUN:-bun}\" ansuz/exact.mjs ios --device --run"
   },
   "devDependencies": {
     "eas-cli": "27.2.0",
