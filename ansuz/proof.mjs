@@ -18,13 +18,16 @@ import { proof, axNames, completedWorldFrame, worldPixels } from "../tooling/exa
 
 // How a fresh session reaches the running world: change it with the title screen.
 const play = async session => {
-  return session.world('world');
+  await session.clock('data');
+  const world = await session.world('world');
+  await session.clock('data');
+  return world;
 };
 
 if (import.meta.main) await proof(import.meta, async ({open, check, out, host, pin, pinSave, look, say}) => {
   if (process.argv.includes('--screenshot-only')) {
     check('screenshot uses web', host === 'web');
-    const shot = await open();
+    const shot = await open({storage:'ansuz-surface-proof', fresh:true});
     await play(shot);
     await shot.screenshot(resolve(out, 'game.png'));
     await shot.close();
@@ -32,7 +35,7 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   }
 
   // Engine facts: they hold for any game, so keep them as they are.
-  const first = await open();
+  const first = await open({storage:'ansuz-surface-proof', fresh:true});
   const world = await play(first);
   pin(0, await world.snapshot());
   await world.run(500);
@@ -53,7 +56,7 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   await world.save(resolve(out, 'continued.world'));
   pinSave('continuation', resolve(out, 'continued.world'));
   await first.close();
-  const restored = await open({fresh:true, world:resolve(out, 'checkpoint.world')});
+  const restored = await open({storage:'ansuz-surface-proof', fresh:true, world:resolve(out, 'checkpoint.world')});
   const loaded = await play(restored);
   check('a fresh process restores the save', JSON.stringify(await loaded.snapshot()) === JSON.stringify(checkpoint));
   await loaded.run(500);
@@ -62,32 +65,27 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   check('continuation saves are byte-identical', readFileSync(resolve(out, 'continued.world')).equals(readFileSync(resolve(out, 'restored.world'))));
   await restored.close();
 
-  if (shown) check('landscape has visible geometry', shown.share > 0.1, shown);
-  const journey = await open();
+  // The empty top-down terrain contrasts mainly through thin grid lines (~6%).
+  // Its inspected dark face fill is intentional; the old seeded cubes are gone.
+  if (shown) check('empty terrain has visible grid geometry', shown.share > 0.03, shown);
+  const journey = await open({storage:'ansuz-surface-proof', fresh:true});
   const scene = await play(journey);
+  await scene.run(100);
   const start = await scene.local_position('camera');
-  const records = JSON.stringify((await scene.resources()).Dataset);
-  check('authored records are present independently of geometry', records !== undefined);
-  await journey.tap('next');
+  check('camera starts above the north pole', Math.abs(start[0]) < 0.001 && Math.abs(start[2]) < 0.001 && Math.abs(start[1] - 148) < 0.001, start);
+  const records = (await scene.resources()).Dataset;
+  check('fresh surface has no seeded objects', records.objects.length === 0);
+  await journey.tap('select-center');
   await scene.run(100);
-  check('selection does not move the camera', JSON.stringify(await scene.local_position('camera')) === JSON.stringify(start));
-  const firstShape = (await scene.resources()).Holograms?.shapes?.[0];
-  await journey.tap('solid-next');
+  check('centre selection resolves an actual terrain face', (await scene.resources()).Journey.selected != null);
+  check('selection leaves records empty', (await scene.resources()).Dataset.objects.length === 0);
+  check('selection leaves camera still', JSON.stringify(await scene.local_position('camera')) === JSON.stringify(start));
+  await journey.screenshot(resolve(out, 'surface-selected.png'));
+  await journey.tap('add-note');
   await scene.run(100);
-  const secondShape = (await scene.resources()).Holograms?.shapes?.[0];
-  check('the shape control changes the focused hologram', firstShape !== undefined && secondShape !== firstShape, {firstShape, secondShape});
-  check('changing shape preserves records and provenance', JSON.stringify((await scene.resources()).Dataset) === records);
-  check('changing shape preserves the viewpoint', JSON.stringify(await scene.local_position('camera')) === JSON.stringify(start));
-  await journey.tap('descend');
-  await scene.run(3000);
-  const low = await scene.local_position('camera');
-  check('descent reaches the surface', Math.abs(Math.hypot(...low) - 134.0) < 0.01, low);
-  await journey.screenshot(resolve(out, 'clearing.png'));
-  await journey.tap('ascend');
-  await scene.run(3000);
-  const returned = await scene.local_position('camera');
-  check('ascent restores the viewpoint', returned.every((n, i) => Math.abs(n - start[i]) < 0.001), returned);
-  check('navigation preserves records and provenance', JSON.stringify((await scene.resources()).Dataset) === records);
+  await journey.screenshot(resolve(out, 'surface-editor.png'));
+  await journey.tap('cancel');
+  await journey.tap('deselect');
   await journey.resize(390, 844);
   await journey.screenshot(resolve(out, 'portrait.png'));
   await journey.close();

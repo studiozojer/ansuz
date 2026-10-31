@@ -1,18 +1,26 @@
-test "choose a place, descend and return"
+test "add a note directly to a terrain face and keep it after relaunch"
   clock data
-  tap "next"
+  tap "select-center"
   clock +100
-  expect text "place" == "The Returning"
-  expect text "solid-name" == "Tetrahedron"
-  tap "solid-next"
+  expect text "face-title" == "Empty surface"
+  tap "add-note"
+  type "note-title" "A first question"
+  type "note-body" "What wants attention here?"
+  tap "save"
+  clock data
   clock +100
-  expect text "solid-name" == "Cube"
-  tap "solid-prev"
+  expect text "face-title" == "A first question"
+  reload
+  clock data
+  tap "select-center"
   clock +100
-  expect text "solid-name" == "Tetrahedron"
-  tap "descend"
-  clock +2500
-  expect text "level" == "IN THE REGION"
-  tap "ascend"
-  clock +2500
-  expect text "level" == "SURFACE ATLAS"
+  clock data
+  clock +100
+  expect text "face-title" == "A first question"
+  expect text "face-body" == "What wants attention here?"
+  tap "add-note"
+  type "note-title" "An edited question"
+  tap "save"
+  clock data
+  clock +100
+  expect text "face-title" == "An edited question"

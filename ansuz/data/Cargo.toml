@@ -1,0 +1,11 @@
+[package]
+name = "ansuz-data"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+workspace = "../.shells"
+
+[dependencies]
+exact-runner.workspace = true
+exact-data.workspace = true
+serde_json.workspace = true

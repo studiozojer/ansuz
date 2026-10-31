@@ -9,6 +9,10 @@
       "silence": [
         "near-black"
       ]
+    },
+    "data": {
+      "crate": "ansuz-data",
+      "type": "AppData"
     }
   }
 }

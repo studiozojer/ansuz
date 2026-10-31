@@ -1,12 +1,10 @@
 # Ansuz
 
-An experimental atlas for divination: I Ching, runes, tarot, and the notes and questions that grow around readings.
+An experimental surface for divination, questions and notes, built with Exact's Rust game/GPU surface and Contract UI.
 
-This first prototype explores a dark, gridded voxel landscape with fixed clusters of sample readings. Drag to glide, touch a region to select it, then press **Descend**. **Ascend** restores the viewpoint you left. Arrow keys/WASD and **Next region** provide alternatives; **Gentle motion** removes the long camera transitions and coasting.
+The app starts empty, looking straight down from the top of a dark voxel sphere. Hover an actual terrain square to highlight it; click to select it, then **Add a note**. A saved note colors that square. Click it again to read or edit. No raised topic cubes, 3×3 clusters, sample readings, floating holograms or particles are seeded.
 
-On desktop, hover the top of one of the five topic platforms to illuminate it and reveal a floating wireframe Platonic solid. Scroll over that top to cycle tetrahedron, cube, octahedron, dodecahedron and icosahedron. **Next region** / N focuses a topic without a mouse; **Previous solid** / Q and **Next solid** / E change its representation. Gentle motion also stops hologram bobbing. Decorative terrain cells are not yet editable topics.
-
-Built with Exact's Rust game/GPU surface and a Contract interface. This is a new standalone app, not an Expo screen or a migration of Zhouyi. It has no account, journal persistence, or backend connection yet. The sample cards are landmarks, not working readings.
+Drag to move across the upper terrain; scroll to zoom. **Top** returns to the starting camera without deleting notes. Arrow keys/WASD pan, Enter or **Select centre** selects the square at the centre, Escape clears selection, and +/− zoom. Navigation pauses while the note editor is open. The current pan bounds cover the upper hemisphere; this is a deliberately simple surface-editing experiment.
 
 ## Run
 
@@ -25,7 +23,15 @@ Install missing browser/Rust tooling reported by that check, then from `ansuz/`:
 bun exact.mjs web
 ```
 
-Use the localhost URL it prints in a WebGPU-capable browser. This browser preview is the first test surface; native phone performance is not yet verified. Native builds must use EAS Build and simulator checks EAS Simulator; do not use the SDK's local native build commands for this project.
+Use its localhost URL in a WebGPU-capable browser. This is a standalone Exact app; Zhouyi is unchanged. Phone behavior and performance remain unverified. Native builds must use EAS Build and simulator checks EAS Simulator; do not use the SDK's local native build commands here.
+
+## Records and local saving
+
+`ansuz/data` saves a small JSON library through Exact's device-local storage adapter at `app:/data/surface-notes.json`. Notes survive reload on the same browser origin/profile. There is no account, cloud sync, import/export or multi-device ID namespace yet. Clearing browser site data removes this local library; changing preview ports uses a different browser origin. This prototype allows up to 4 MiB of library JSON.
+
+Objects have stable IDs, content and separate typed relationships. A placement links an object ID to a voxel face; the coordinate is not its identity. Selecting an empty face creates nothing. Saving creates a note and placement; editing preserves its ID and relationships. Failed writes retain the draft, and unreadable existing data is not silently replaced with an empty library.
+
+The north star remains one dataset with many spatial projections. The current UI has one terrain view. The earlier raised-cluster and hologram interpretation was explicitly rejected in favor of working directly on terrain surfaces; that experiment remains in git history. Record-level projection tests remain as groundwork, without claiming a visible sphere/pyramid/tree transformation.
 
 ## Check
 
@@ -36,28 +42,17 @@ bun exact.mjs test-rust
 bun exact.mjs contract build app.contract --json
 bun exact.mjs test web
 bun proof.mjs web
+bun tools/check-surfaces.mjs http://localhost:8766
 ```
 
-The Rust tests exercise selection, descent/return, stable geography, reduced motion, catching a coast with a new touch, root records and hover geometry. The browser checks exercise the visible controls, preservation of records through shape changes, and the real GPU scene. `pins.json` has no native proof baseline yet; do not run the SDK's full `prove` command locally because it also builds native hosts.
+The last command requires an already served browser build; pass its actual URL. It uses real mouse selection and checks create, edit, reload, adjacent faces and body-only notes. Screenshots go to `artifacts/surfaces/`. Hostless tests cover picking, camera/selection, identity, projections and storage failures. Browser proof covers rendering, deterministic save/restore and the surface/editor flow. Its overall status remains UNVERIFIED without a cross-host baseline; do not run the full SDK `prove` command locally because it builds native hosts.
 
-With the web build already served, `bun tools/check-hover.mjs http://localhost:8766` checks real desktop mouse hover, wheel cycling, leaving the top and reaching the shape buttons. Pass the actual preview URL if its port differs. Screenshots go to `artifacts/desktop-hover/`.
+SDK revision: `4e9000abbdaa8315ae864cdb8253af143aac510c`.
 
-The scene and camera live in `ansuz/logic/src/lib.rs`; the interface is `ansuz/app.contract`. SDK revision: `4e9000abbdaa8315ae864cdb8253af143aac510c`.
+## Terrain
 
-## Records and views
+`ansuz/tools/make-terrain.py` samples a filled 3D voxel volume, removes internal faces and greedily merges coplanar exposed faces into a static GLB. The repeating grayscale grid still identifies individual 2.5-unit cells. `terrain_pick.rs` intersects the actual triangles, rejects a nearest side/underside, and resolves a merged top face back to its individual cell. A derived BVH accelerates picking; it is not a content store.
 
-`ansuz/logic/src/records.rs` holds fixture objects with stable IDs and separate containment, derivation and association links. Derivation links can name a source block. Shapes and positions belong to presentation, so changing a hologram cannot change a reading's identity or provenance. Pure surface and provenance projections demonstrate resolving the same records through different layouts; a visible sphere-to-pyramid transition is not implemented yet.
+The field contains 463,788 occupied cells, 43,590 exposed cell faces and 19,092 merged quads (38,184 triangles). These counts describe meshing, not measured runtime improvement. This is not a runtime voxel editor, streaming system or raymarcher. Regenerate with `python3 ansuz/tools/make-terrain.py`; meshing tests are `python3 ansuz/tools/test-terrain.py`.
 
-Weights are authored sample values. The provisional aggregation counts each reachable contained object once, including the root; associations and derivations do not add weight. The current motion experiment makes heavier aggregates bob more slowly. Both rules are tunable assumptions, not an implementation of the cited P-tree paper or a claim about sacred geometry. Shapes carry no fixed divination-type meaning.
-
-The source of this slice is David's written root-node outline and subsequent multiple-geometries north star, preserved separately in the armillary commons. The audio transcript is a separate source and has not been used as evidence for this implementation.
-
-## Voxel terrain
-
-`ansuz/tools/make-terrain.py` samples a filled 3D voxel volume, removes faces between occupied cells, and greedily merges coplanar exposed faces. It bakes a static GLB for Exact's mesh renderer, with a repeating grayscale cell grid. This is voxel-derived geometry, not a runtime voxel editor, raymarcher, streaming system, or new graphics backend. The underlying curved coordinate system remains for navigation; there are no ocean, continent, or sun entities.
-
-The current field has 463,788 occupied cells, 43,590 exposed cell faces and 19,092 merged quads (38,184 triangles). These counts compare meshing strategies for this field; they do not establish a frame-rate improvement over the previous scene. Runtime chunk streaming and distance-based detail are not implemented. Reading anchors are independent of the terrain. Ambient square particles drift around regions; Gentle motion stops new particles and lets existing ones fade.
-
-Regenerate with `python3 ansuz/tools/make-terrain.py`; check face removal, merging, winding and cavity preservation with `python3 ansuz/tools/test-terrain.py`.
-
-The automated look check's `near-black` warning is intentionally silenced for this user-requested dark treatment after inspecting both screen orientations and the descended view. GPU-frame completion, visible-geometry coverage, and the remaining look checks still run. No native performance result is claimed.
+The automated look check's near-black warning is intentionally silenced for the requested dark treatment. GPU-frame completion, visible-geometry coverage and remaining look checks still run; screenshots are inspected separately.

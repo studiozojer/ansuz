@@ -1,129 +1,91 @@
-use ansuz_logic::{Ansuz, Journey, Options, HIGH, LOW};
-use exact_game::{Sim, Transform};
-
-#[test]
-fn selection_descent_and_return_preserve_geography() {
-    let mut game: Sim<Ansuz> = exact_game::sim_with_art!(Options::default()).unwrap();
-    game.viewport(800., 600.);
-    game.tap("Enter");
-    game.run(100.);
-    assert_eq!(game.world().resource::<Journey>().altitude, HIGH);
-    game.hold("KeyD", 500.);
-    game.run(2500.);
-    assert!(game.settle());
-    let before = *game.world().resource::<Journey>();
-    let marker = *game.get::<Transform>("reading-0-0").unwrap();
-    game.tap("KeyN");
-    game.run(100.);
-    assert_eq!(game.world().resource::<Journey>().selected, 0);
-    assert_eq!(game.world().resource::<Journey>().altitude, HIGH);
-    game.tap("Enter");
-    game.run(3000.);
-    assert_eq!(game.world().resource::<Journey>().altitude, LOW);
-    assert!(game.world().resource::<Journey>().entered);
-    game.tap("Escape");
-    game.run(3000.);
-    let after = game.world().resource::<Journey>();
-    assert!(!after.entered);
-    assert_eq!(after.altitude, before.altitude);
-    assert!((after.longitude - before.longitude).abs() < 0.00001);
-    assert_eq!(after.latitude, before.latitude);
-    assert_eq!(
-        game.get::<Transform>("reading-0-0").unwrap().position,
-        marker.position
-    );
+use ansuz_logic::{
+    camera_pose, records::Dataset, Ansuz, Archive, Journey, Options, SurfaceRecords, START_HEIGHT,
+};
+use exact_game::{Clock, InputEvent, PointerPhase, Sim, Transform, Vec3, Visible};
+fn game() -> Sim<Ansuz> {
+    let mut g = exact_game::sim_with_art!(Options::default()).unwrap();
+    g.viewport(800., 600.);
+    g
 }
-
-#[test]
-fn reduced_motion_arrives_without_a_long_transition() {
-    let mut game: Sim<Ansuz> = exact_game::sim_with_art!(Options {
-        reduced: true,
-        ..Options::default()
-    })
-    .unwrap();
-    game.tap("KeyN");
-    game.tap("Enter");
-    game.run(30.);
-    let journey = game.world().resource::<Journey>();
-    assert_eq!(journey.altitude, LOW);
-    assert!(!journey.travelling);
-}
-
-#[test]
-fn dragging_coasts_and_a_new_touch_catches_it() {
-    use exact_game::{Clock, InputEvent, PointerPhase};
-    let mut game: Sim<Ansuz> = exact_game::sim_with_art!(Options::default()).unwrap();
-    game.viewport(800., 600.);
-    game.advance(0., Clock::Seekable);
-    let mut pointer = |phase, x, dx, buttons, at_ms| {
-        game.input(InputEvent::Pointer {
-            id: 1,
-            phase,
-            x,
-            y: 300.,
-            dx,
-            dy: 0.,
-            buttons,
-            at_ms,
-            player: 0,
-        });
-        game.advance(at_ms + 10., Clock::Seekable);
-    };
-    pointer(PointerPhase::Down, 400., 0., 1, 1.);
-    pointer(PointerPhase::Move, 460., 60., 1, 21.);
-    pointer(PointerPhase::Up, 460., 0., 0, 41.);
-    let released = *game.world().resource::<Journey>();
-    assert!(released.longitude < 0.);
-    assert_eq!(released.selected, -1, "a drag must not select a clearing");
-    game.advance(141., Clock::Seekable);
-    assert!(
-        game.world().resource::<Journey>().longitude < released.longitude,
-        "release coasts"
-    );
-    game.input(InputEvent::Pointer {
+fn pointer(g: &mut Sim<Ansuz>, phase: PointerPhase, x: f32, dx: f32, buttons: u32, at_ms: f64) {
+    g.input(InputEvent::Pointer {
         id: 1,
-        phase: PointerPhase::Down,
-        x: 460.,
+        phase,
+        x,
         y: 300.,
-        dx: 0.,
+        dx,
         dy: 0.,
-        buttons: 1,
-        at_ms: 142.,
+        buttons,
+        at_ms,
         player: 0,
     });
-    game.advance(155., Clock::Seekable);
-    let caught = *game.world().resource::<Journey>();
-    assert_eq!(caught.vx, 0.);
-    game.advance(355., Clock::Seekable);
-    assert_eq!(
-        game.world().resource::<Journey>().longitude,
-        caught.longitude
-    );
+    g.advance(at_ms + 10., Clock::Seekable);
 }
-
 #[test]
-fn touching_a_visible_clearing_selects_without_descending() {
-    use exact_game::{Clock, InputEvent, PointerPhase};
-    let mut game: Sim<Ansuz> = exact_game::sim_with_art!(Options::default()).unwrap();
-    game.viewport(800., 600.);
-    game.advance(0., Clock::Seekable);
-    let center = game.layout("place-0").unwrap().screen.center();
-    for (phase, buttons, at_ms) in [(PointerPhase::Down, 1, 1.), (PointerPhase::Up, 0, 21.)] {
-        game.input(InputEvent::Pointer {
-            id: 1,
-            phase,
-            x: center.x,
-            y: center.y,
-            dx: 0.,
-            dy: 0.,
-            buttons,
-            at_ms,
-            player: 0,
-        });
-        game.advance(at_ms + 10., Clock::Seekable);
-    }
-    let journey = game.world().resource::<Journey>();
-    assert_eq!(journey.selected, 0);
-    assert_eq!(journey.altitude, HIGH);
-    assert!(!journey.entered);
+fn fresh_world_is_empty_and_camera_looks_down_from_north_pole() {
+    let g = game();
+    let j = *g.world().resource::<Journey>();
+    assert_eq!(g.world().resource::<Dataset>().objects.len(), 0);
+    assert!(g.world().resource::<SurfaceRecords>().placements.is_empty());
+    assert!(g.get::<Transform>("place-0").is_none());
+    assert!(g.get::<Transform>("reading-0-0").is_none());
+    let camera = camera_pose(&j);
+    assert_eq!(camera.position, Vec3::new(0., 120. + START_HEIGHT, 0.));
+    assert!((camera.rotation * -Vec3::Z + Vec3::Y).length() < 0.0001);
+}
+#[test]
+fn quick_click_selects_a_real_top_without_creating_an_object() {
+    let mut g = game();
+    pointer(&mut g, PointerPhase::Down, 420., 0., 1, 1.);
+    pointer(&mut g, PointerPhase::Up, 420., 0., 0, 21.);
+    let cell = g
+        .world()
+        .resource::<Journey>()
+        .selected
+        .expect("real surface");
+    assert!(cell.center().y > 115.);
+    assert!(g.get::<Visible>("selected-face").unwrap().0);
+    assert!(g.world().resource::<Dataset>().objects.is_empty());
+}
+#[test]
+fn drag_moves_grid_without_selecting_and_release_is_still() {
+    let mut g = game();
+    pointer(&mut g, PointerPhase::Down, 400., 0., 1, 1.);
+    pointer(&mut g, PointerPhase::Move, 460., 60., 1, 21.);
+    pointer(&mut g, PointerPhase::Up, 460., 0., 0, 41.);
+    let before = *g.world().resource::<Journey>();
+    assert!(before.x < 0.);
+    assert!(before.selected.is_none());
+    g.run(500.);
+    assert_eq!(g.world().resource::<Journey>().x, before.x);
+    g.tap("Home");
+    g.run(30.);
+    assert_eq!(g.world().resource::<Journey>().x, 0.);
+}
+#[test]
+fn keyboard_can_select_and_clear_a_surface() {
+    let mut g = game();
+    g.tap("Enter");
+    g.run(30.);
+    assert!(g.world().resource::<Journey>().selected.is_some());
+    g.tap("Escape");
+    g.run(30.);
+    assert!(g.world().resource::<Journey>().selected.is_none());
+}
+#[test]
+fn stored_object_is_referenced_by_placement_and_survives_camera_navigation() {
+    let json = r#"{"version":1,"next_id":2,"objects":[{"id":"note-1","title":"Question","body":"A thought","content_kind":"note","authored_weight":1}],"relations":[],"placements":[{"object_id":"note-1","x":0,"y":47,"z":0}]}"#;
+    let archive: Archive = exact_game::json::from_str(json).unwrap();
+    assert_eq!(archive.objects[0].id, archive.placements[0].object_id);
+    let mut g: Sim<Ansuz> = exact_game::sim_with_art!(Options {
+        records: json.into(),
+        editing: false
+    })
+    .unwrap();
+    g.viewport(800., 600.);
+    g.hold("KeyD", 400.);
+    g.tap("Home");
+    g.run(30.);
+    assert_eq!(g.world().resource::<Dataset>().objects[0].id, "note-1");
+    assert_eq!(g.world().resource::<Dataset>().objects[0].body, "A thought");
 }

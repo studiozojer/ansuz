@@ -1,54 +1,97 @@
 shape Hud
-  title: string
-  detail: string
   selected: bool
-  entered: bool
-  travelling: bool
-  altitude: number
-  active: bool
-  hover_title: string
-  hover_id: string
-  solid_name: string
+  occupied: bool
+  title: string
+  body: string
+  object_id: string
+  x: number
+  y: number
+  z: number
+  count: number
+shape SurfaceNotes
+  json: string
+  error: string
+  ready: bool
+shape SaveResult
+  ok: bool
+  error: string
 
 component Ansuz
-  state again = false
-  state reduced = false
+  state editing = false
+  state title = ""
+  state body = ""
+  state cellX = 0
+  state cellY = 0
+  state cellZ = 0
+  resource library = loadSurfaceNotes() as shape SurfaceNotes
   resource hud = exactSurface("world") as shape Hud
-  action restart
-    again = not again
-  action motion
-    reduced = not reduced
+  mutation saved as shape SaveResult refreshes library then afterSave
+  derive saveError = match saved { case some(r) => r.error, case none => "" }
+  action openEditor
+    title = hud.title
+    body = hud.body
+    cellX = hud.x
+    cellY = hud.y
+    cellZ = hud.z
+    editing = true
+  action editTitle(value: string)
+    title = value
+  action editBody(value: string)
+    body = value
+  action cancel
+    editing = false
+  action save
+    if (title.trim() != "" or body.trim() != "") and not pending(saved)
+      send saved = saveSurfaceNote(cellX, cellY, cellZ, title, body)
+  action afterSave
+    if match saved { case some(r) => r.ok, case none => false }
+      editing = false
   view
     main width="100%" height="100%" background-color="#090909" color="#dedede"
-      canvas surface=world(restart=again, reduced=reduced) testId="world" width="100%" height="100%" position="relative"
-        row position="absolute" top="env(safe-area-inset-top, 0px)" left=0 right=0 padding=20 justify-content="space-between" align-items="center" gap=12
-          column gap=3
-            text "ANSUZ" font-size="1.3rem" letter-spacing="0.22em" font-weight=600
-            text "an atlas of attention" font="-exact-caption1" color="#a0a0a0"
-          button press=restart testId="reset" aria-label="Return to the starting view" padding=12 border-radius=12 background-color="#252525"
-            text "Recenter"
-        column position="absolute" bottom="env(safe-area-inset-bottom, 0px)" left=0 right=0 padding=20 gap=12 background-color="#090909e8"
-          row align-items="center" justify-content="space-between" gap=12 flex-wrap="wrap"
-            text (hud.entered ? "IN THE REGION" : "SURFACE ATLAS") font="-exact-caption1" letter-spacing="0.12em" color="#a0a0a0" testId="level"
-            text "voxel study" font="-exact-caption1" color="#a0a0a0"
-          text hud.title font="-exact-title2" testId="place"
-          text hud.detail font="-exact-subheadline" color="#a0a0a0"
-          if hud.active
-            row gap=12 align-items="center" flex-wrap="wrap"
-              text hud.hover_title font="-exact-caption1" color="#b7d8de" testId="hover-title"
-              text hud.solid_name font="-exact-caption1" testId="solid-name"
-              button action="solid-prev" testId="solid-prev" aria-label="Previous Platonic solid (Q)" padding=10 border-radius=10 background-color="#252525"
-                text "Previous solid"
-              button action="solid-next" testId="solid-next" aria-label="Next Platonic solid (E)" padding=10 border-radius=10 background-color="#252525"
-                text "Next solid"
-          row gap=12 flex-wrap="wrap"
-            button action="next" testId="next" padding=12 border-radius=12 background-color="#252525" disabled=hud.travelling
-              text "Next region"
-            if hud.entered
-              button action="ascend" testId="ascend" padding=12 border-radius=12 background-color="#d0d0d0" color="#090909" disabled=hud.travelling
-                text "Ascend"
+      if library.ready
+        canvas surface=world(records=library.json, editing=editing) testId="world" width="100%" height="100%" position="relative"
+          row position="absolute" top="env(safe-area-inset-top, 0px)" left=0 right=0 padding=20 justify-content="space-between" align-items="center" gap=12
+            text "ANSUZ" font-size="1.1rem" letter-spacing="0.22em" font-weight=600
+            button action="recenter" testId="reset" disabled=editing aria-label="Return to the top of the sphere" padding=10 border-radius=10 background-color="#252525"
+              text "Top"
+          if editing
+            column position="absolute" bottom="max(16px, env(safe-area-inset-bottom, 0px))" right=16 width="min(340px, calc(100% - 32px))" box-sizing="border-box" padding=20 gap=12 border-radius=12 background-color="#15191af5" testId="editor"
+              text "On this surface" font="-exact-headline"
+              input value=title input=editTitle placeholder="Title" aria-label="Title" testId="note-title" width="100%" padding=10 background-color="#262b2c" color="#eeeeee" border-radius=6
+              textarea value=body input=editBody placeholder="A thought, question, or note…" aria-label="Note" testId="note-body" width="100%" height=130 padding=10 background-color="#262b2c" color="#eeeeee" border-radius=6
+              if saveError != "" or failed(saved)
+                text (failed(saved) ? "Couldn't save. Your draft is still here." : saveError) color="#f0acac" font="-exact-caption1" testId="save-error"
+              row gap=12 justify-content="flex-end"
+                button press=cancel testId="cancel" disabled=pending(saved) padding=10
+                  text "Cancel"
+                button press=save testId="save" disabled=(pending(saved) or (title.trim() == "" and body.trim() == "")) padding=10 border-radius=8 background-color="#b7d8de" color="#090909"
+                  text (pending(saved) ? "Saving…" : "Save")
+          else
+            if hud.selected
+              column position="absolute" bottom="max(16px, env(safe-area-inset-bottom, 0px))" right=16 width="min(340px, calc(100% - 32px))" box-sizing="border-box" padding=20 gap=12 border-radius=12 background-color="#15191af5" testId="face-panel"
+                text (hud.occupied ? hud.title : "Empty surface") font="-exact-headline" testId="face-title"
+                if hud.occupied
+                  text hud.body font="-exact-subheadline" max-height=120 overflow="auto" testId="face-body"
+                row gap=12 justify-content="flex-end"
+                  button action="clear" testId="deselect" padding=10
+                    text "Close"
+                  button press=openEditor testId="add-note" disabled=(library.error != "" or pending(library)) padding=10 border-radius=8 background-color="#b7d8de" color="#090909"
+                    text (hud.occupied ? "Edit" : "Add a note")
             else
-              button action="descend" testId="descend" padding=12 border-radius=12 background-color="#d0d0d0" color="#090909" disabled=(not hud.selected or hud.travelling)
-                text (hud.travelling ? "Travelling…" : "Descend")
-            button press=motion testId="motion" padding=12
-              text (reduced ? "Gentle motion: on" : "Gentle motion")
+              column position="absolute" bottom="max(20px, env(safe-area-inset-bottom, 0px))" left=20 right=20 align-items="center" gap=8
+                text "Choose a top surface to add something." color="#b3b3b3" font="-exact-subheadline" testId="hint"
+                row gap=12
+                  button action="select-center" testId="select-center" padding=8 background-color="#252525" border-radius=8
+                    text "Select centre"
+                  button action="closer" aria-label="Zoom in" testId="closer" padding=8
+                    text "+"
+                  button action="farther" aria-label="Zoom out" testId="farther" padding=8
+                    text "−"
+                text "Drag to move · scroll to zoom" color="#888888" font="-exact-caption1"
+          if library.error != ""
+            text library.error position="absolute" top=80 left=20 right=20 color="#f0acac" testId="load-error"
+      else
+        column width="100%" height="100%" align-items="center" justify-content="center" gap=12
+          text "Opening your surface…" color="#b3b3b3"
+          if failed(library)
+            text "Could not open local notes. Reload to try again." color="#f0acac"

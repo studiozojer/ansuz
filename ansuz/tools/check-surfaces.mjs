@@ -1,0 +1,38 @@
+// Run against an already served browser build: bun tools/check-surfaces.mjs [URL]
+import {mkdirSync} from 'node:fs';
+import {resolve} from 'node:path';
+import {chromium} from '../../tooling/exact2/node_modules/playwright-core/index.mjs';
+const out=resolve(import.meta.dir,'../artifacts/surfaces');
+mkdirSync(out,{recursive:true});
+const browser=await chromium.launch({headless:true,executablePath:chromium.executablePath(),args:['--enable-unsafe-webgpu','--no-sandbox','--use-mock-keychain','--password-store=basic']});
+try {
+ const page=await browser.newPage({viewport:{width:1280,height:720}});
+ const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ const ready=()=>page.waitForFunction(()=>{const el=document.querySelector('[data-gpu-input]');return el&&globalThis.exact?.gpu?.wantsInput(Number(el.dataset.view));},null,{timeout:60000});
+ const textIs=(id,text)=>page.waitForFunction(({id,text})=>document.querySelector(`[data-testid="${id}"]`)?.textContent===text,{id,text});
+ await page.goto(process.argv[2]??'http://127.0.0.1:8766');await ready();
+ await page.screenshot({path:resolve(out,'empty.png')});
+ if(await page.locator('[data-testid="next"], [data-testid="solid-next"]').count())throw new Error('Old cluster controls remain');
+ await page.mouse.move(650,330);await page.waitForTimeout(150);
+ await page.screenshot({path:resolve(out,'hover.png')});
+ await page.mouse.click(650,330);await textIs('face-title','Empty surface');
+ await page.locator('[data-testid="add-note"]').click();
+ await page.locator('[data-testid="note-title"]').fill('A surface question');
+ await page.locator('[data-testid="note-body"]').fill('What grows here?');
+ await page.locator('[data-testid="save"]').click();await textIs('face-title','A surface question');
+ await page.screenshot({path:resolve(out,'saved.png')});
+ await page.reload();await ready();
+ await page.mouse.click(650,330);await textIs('face-title','A surface question');await textIs('face-body','What grows here?');
+ await page.locator('[data-testid="add-note"]').click();
+ await page.locator('[data-testid="note-title"]').fill('The same root, edited');
+ await page.locator('[data-testid="save"]').click();await textIs('face-title','The same root, edited');
+ await page.mouse.click(740,330);await textIs('face-title','Empty surface');
+ await page.locator('[data-testid="add-note"]').click();
+ await page.locator('[data-testid="note-body"]').fill('A neighbouring thought');
+ await page.locator('[data-testid="save"]').click();await textIs('face-title','Untitled note');
+ await page.reload();await ready();await page.mouse.click(650,330);await textIs('face-title','The same root, edited');
+ await page.locator('[data-testid="deselect"]').click();
+ await page.setViewportSize({width:390,height:844});await page.screenshot({path:resolve(out,'portrait.png')});
+ if(errors.length)throw new Error(errors.join('\n'));
+ console.log('PASS actual face selection, local create/edit/reload, distinct neighbouring face, body-only note, portrait');
+} catch(error) {throw error;} finally {await browser.close();}
