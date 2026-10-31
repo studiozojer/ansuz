@@ -1,0 +1,26 @@
+test "add a note directly to a terrain face and keep it after relaunch"
+  clock data
+  tap "select-center"
+  clock +1100
+  expect text "face-title" == "Empty surface"
+  tap "add-note"
+  type "note-title" "A first question"
+  type "note-body" "What wants attention here?"
+  tap "save"
+  clock data
+  clock +100
+  expect text "face-title" == "A first question"
+  reload
+  clock data
+  tap "select-center"
+  clock +1100
+  clock data
+  clock +100
+  expect text "face-title" == "A first question"
+  expect text "face-body" == "What wants attention here?"
+  tap "add-note"
+  type "note-title" "An edited question"
+  tap "save"
+  clock data
+  clock +100
+  expect text "face-title" == "An edited question"

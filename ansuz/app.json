@@ -1,0 +1,18 @@
+{
+  "app": {
+    "id": "studio.zojer.ansuz",
+    "name": "Ansuz"
+  },
+  "game": {
+    "assets": true,
+    "look": {
+      "silence": [
+        "near-black"
+      ]
+    },
+    "data": {
+      "crate": "ansuz-data",
+      "type": "AppData"
+    }
+  }
+}
