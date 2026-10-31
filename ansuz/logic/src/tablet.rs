@@ -78,7 +78,7 @@ pub fn draw(w: &mut World, j: &Journey) {
     }
 }
 
-/// Test actual clay triangles so its rounded corners don't steal neighbouring faces.
+/// Test actual voxel triangles so its stepped corners don't steal neighbouring faces.
 pub fn hit(w: &World, origin: Vec3, direction: Vec3) -> Option<f32> {
     if !w.get::<Visible>("tablet")?.0 {
         return None;

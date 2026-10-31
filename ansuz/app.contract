@@ -29,6 +29,9 @@ component Ansuz
   resource hud = exactSurface("world") as shape Hud
   mutation saved as shape SaveResult refreshes library then afterSave
   derive saveError = match saved { case some(r) => r.error, case none => "" }
+  action heard(text: string)
+    if text == "open-tablet" and hud.selected and not editing and not hud.travelling and library.error == "" and not pending(library)
+      openEditor()
   action openEditor
     title = hud.title
     body = hud.body
@@ -51,7 +54,7 @@ component Ansuz
   view
     main width="100%" height="100%" background-color="#090909" color="#dedede"
       if library.ready
-        canvas surface=world(records=library.json, editing=editing) testId="world" width="100%" height="100%" position="relative"
+        canvas surface=world(records=library.json, editing=editing) message=heard testId="world" width="100%" height="100%" position="relative"
           row position="absolute" top="env(safe-area-inset-top, 0px)" left=0 right=0 padding=20 justify-content="space-between" align-items="center" gap=12
             text "ANSUZ" font-size="1.1rem" letter-spacing="0.22em" font-weight=600
             row gap=8
@@ -61,7 +64,7 @@ component Ansuz
                 button action="ascend" testId="ascend" disabled=(editing or hud.travelling) padding=10 border-radius=10 background-color="#b7d8de" color="#090909"
                   text "Ascend"
               else
-                button action="descend" testId="descend" disabled=hud.travelling padding=10 border-radius=10 background-color="#b7d8de" color="#090909"
+                button action="descend" testId="descend" disabled=(editing or hud.travelling) padding=10 border-radius=10 background-color="#b7d8de" color="#090909"
                   text "Descend"
           if editing
             column position="absolute" bottom="max(16px, env(safe-area-inset-bottom, 0px))" right=16 width="min(340px, calc(100% - 32px))" box-sizing="border-box" padding=20 gap=12 border-radius=12 background-color="#15191af5" testId="editor"
@@ -84,7 +87,7 @@ component Ansuz
                 if hud.occupied
                   text hud.body font="-exact-subheadline" max-height=120 overflow="auto" testId="face-body"
                 row gap=8 align-items="center"
-                  text "Clay tablet" font="-exact-caption1" color="#b3b3b3"
+                  text "Click tablet to open" font="-exact-caption1" color="#b3b3b3"
                   button action="turn-left" testId="tablet-left" aria-label="Turn tablet left" padding=10 background-color="#252525" border-radius=8
                     text "↶"
                   button action="turn-right" testId="tablet-right" aria-label="Turn tablet right" padding=10 background-color="#252525" border-radius=8
@@ -92,11 +95,8 @@ component Ansuz
                 row gap=12 justify-content="flex-end"
                   button action="clear" testId="deselect" padding=10
                     text "Close"
-                  if hud.surface
-                    button press=openEditor testId="add-note" disabled=(hud.travelling or library.error != "" or pending(library)) padding=10 border-radius=8 background-color="#b7d8de" color="#090909"
-                      text (hud.occupied ? "Edit" : "Add a note")
-                  else
-                    text "Descend to work on this surface." font="-exact-caption1" color="#b3b3b3"
+                  button press=openEditor testId="add-note" disabled=(hud.travelling or library.error != "" or pending(library)) padding=10 border-radius=8 background-color="#b7d8de" color="#090909"
+                    text (hud.occupied ? "Edit" : "Add a note")
             else
               column position="absolute" bottom="max(20px, env(safe-area-inset-bottom, 0px))" left=20 right=20 align-items="center" gap=8
                 text (hud.surface ? "Choose a top surface to add something." : "Explore the landscape. Descend to add something.") color="#b3b3b3" font="-exact-subheadline" testId="hint"

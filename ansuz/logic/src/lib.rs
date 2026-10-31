@@ -159,7 +159,17 @@ pub fn ascend(j: &mut Journey) {
     j.vz = 0.;
     j.hovered = None;
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Target {
+    Surface(Cell),
+    Tablet(Cell),
+}
 pub fn pick(w: &World, point: Vec2, size: Vec2, j: &Journey) -> Option<Cell> {
+    pick_target(w, point, size, j).map(|hit| match hit {
+        Target::Surface(cell) | Target::Tablet(cell) => cell,
+    })
+}
+pub fn pick_target(w: &World, point: Vec2, size: Vec2, j: &Journey) -> Option<Target> {
     if size.min_element() <= 0.
         || point.x < 0.
         || point.y < 0.
@@ -177,12 +187,15 @@ pub fn pick(w: &World, point: Vec2, size: Vec2, j: &Journey) -> Option<Cell> {
             .project_point3(ndc)
             .normalize();
     let terrain = terrain_pick::hit(w, pose.position, ray);
-    if let Some(distance) = tablet::hit(w, pose.position, ray) {
-        if terrain.is_none_or(|(blocking, _)| distance < blocking) {
-            return j.selected;
+    // A clear/selection action can precede this frame's mesh update.
+    if j.selected.is_some() && w.resource::<tablet::TabletView>().cell == j.selected {
+        if let Some(distance) = tablet::hit(w, pose.position, ray) {
+            if terrain.is_none_or(|(blocking, _)| distance < blocking) {
+                return j.selected.map(Target::Tablet);
+            }
         }
     }
-    terrain.and_then(|(_, cell)| cell)
+    terrain.and_then(|(_, cell)| cell).map(Target::Surface)
 }
 fn face_pose(cell: Cell, lift: f32) -> Transform {
     let p = cell.center() + Vec3::Y * lift;
@@ -449,7 +462,20 @@ impl Game for Ansuz {
                     (p.position - origin).length().max(j.dragged)
                 });
                 if travel < 7. {
-                    j.selected = pick(w, p.position, input.viewport(), &j);
+                    match pick_target(w, p.position, input.viewport(), &j) {
+                        Some(Target::Tablet(cell)) => {
+                            // Both ends must belong to the tablet. A drag or a press
+                            // on terrain must never open the editor on release.
+                            if p.press_origin.is_some_and(|start| {
+                                pick_target(w, start, input.viewport(), &j)
+                                    == Some(Target::Tablet(cell))
+                            }) {
+                                w.emit("open-tablet");
+                            }
+                        }
+                        Some(Target::Surface(cell)) => j.selected = Some(cell),
+                        None => j.selected = None,
+                    }
                     j.vx = 0.;
                     j.vz = 0.;
                 }

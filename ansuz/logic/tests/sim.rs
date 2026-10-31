@@ -176,6 +176,14 @@ fn selected_surface_opens_one_turnable_tablet_without_creating_content() {
         pick(g.world(), screen, Vec2::new(800., 600.), &j),
         Some(cell)
     );
+    let cleared = Journey {
+        selected: None,
+        ..j
+    };
+    assert!(matches!(
+        ansuz_logic::pick_target(g.world(), screen, Vec2::new(800., 600.), &cleared),
+        Some(ansuz_logic::Target::Surface(_))
+    ));
     g.tap("KeyE");
     g.run(40.);
     assert_ne!(
@@ -198,4 +206,51 @@ fn atmospheric_start_exposes_selectable_tops() {
     assert!(g.world().resource::<Journey>().selected.is_some());
     assert!(g.get::<Visible>("tablet").unwrap().0);
     assert!(g.world().resource::<Dataset>().objects.is_empty());
+}
+
+#[test]
+fn tablet_click_opens_its_note_but_drag_and_terrain_click_do_not() {
+    use exact_game::Vec2;
+    let mut g = game();
+    g.tap("Enter");
+    g.run(600.);
+    assert!(g.take_messages().is_empty());
+    let cell = g.world().resource::<Journey>().selected;
+    let camera = *g.get::<Transform>("camera").unwrap();
+    let tablet = *g.get::<Transform>("tablet").unwrap();
+    let local = camera.rotation.inverse() * (tablet.position - camera.position);
+    let clip = exact_game::Camera::default()
+        .matrix(Vec2::new(800., 600.))
+        .project_point3(local);
+    let (x, y) = ((clip.x + 1.) * 400., (1. - clip.y) * 300.);
+    let send = |g: &mut Sim<Ansuz>, phase, x, y, dx, buttons| {
+        let at_ms = g.world().seconds() * 1000. + 20.;
+        g.input(InputEvent::Pointer {
+            id: 1,
+            phase,
+            x,
+            y,
+            dx,
+            dy: 0.,
+            buttons,
+            at_ms,
+            player: 0,
+        });
+        g.advance(at_ms + 10., Clock::Seekable);
+    };
+    send(&mut g, PointerPhase::Down, x, y, 0., 1);
+    send(&mut g, PointerPhase::Up, x, y, 0., 0);
+    assert_eq!(g.take_messages(), vec!["open-tablet"]);
+    assert_eq!(g.world().resource::<Journey>().selected, cell);
+    assert!(g.world().resource::<Dataset>().objects.is_empty());
+    send(&mut g, PointerPhase::Down, x, y, 0., 1);
+    send(&mut g, PointerPhase::Move, x + 30., y, 30., 1);
+    send(&mut g, PointerPhase::Up, x + 30., y, 0., 0);
+    assert!(g.take_messages().is_empty());
+    g.tap("Home");
+    g.run(40.);
+    send(&mut g, PointerPhase::Down, 400., 300., 0., 1);
+    send(&mut g, PointerPhase::Up, 400., 300., 0., 0);
+    assert!(g.world().resource::<Journey>().selected.is_some());
+    assert!(g.take_messages().is_empty());
 }
