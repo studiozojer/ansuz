@@ -55,6 +55,9 @@ component Ansuz
     main width="100%" height="100%" background-color="#090909" color="#dedede"
       if library.ready
         canvas surface=world(records=library.json, editing=editing) message=heard testId="world" width="100%" height="100%" position="relative"
+          column testId="tablet-content" display=(hud.selected ? "flex" : "none") width=270 height=330 box-sizing="border-box" padding=8 gap=16 overflow="hidden" pointer-events="none" color="#29251f"
+            text (editing ? (title != "" ? title : "New note") : (hud.occupied ? hud.title : "New note")) testId="tablet-title" font-size=27 line-height="32px" font-weight=700 max-height=96 overflow="hidden"
+            text (editing ? body : (hud.occupied ? hud.body : "Click to write")) testId="tablet-body" font-size=20 line-height="27px" white-space="pre-wrap" overflow="hidden"
           row position="absolute" top="env(safe-area-inset-top, 0px)" left=0 right=0 padding=20 justify-content="space-between" align-items="center" gap=12
             text "ANSUZ" font-size="1.1rem" letter-spacing="0.22em" font-weight=600
             row gap=8

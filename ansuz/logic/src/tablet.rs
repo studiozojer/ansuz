@@ -21,6 +21,19 @@ pub fn setup(w: &mut World) {
         ),
     );
     w.spawn_named(
+        "tablet-writing",
+        (
+            Transform::default(),
+            Placed {
+                anchor: [0.5, 0.5],
+                ..Placed::child("tablet-content")
+                    .width(2.7)
+                    .facing(Facing::Fixed)
+            },
+            Visible(false),
+        ),
+    );
+    w.spawn_named(
         "tablet-light",
         (
             Transform::default(),
@@ -52,6 +65,7 @@ pub fn draw(w: &mut World, j: &Journey) {
     }
     let Some(cell) = view.cell else {
         w.require_mut::<Visible>("tablet").0 = false;
+        w.require_mut::<Visible>("tablet-writing").0 = false;
         w.require_mut::<PointLight>("tablet-light").intensity = 0.;
         return;
     };
@@ -68,6 +82,12 @@ pub fn draw(w: &mut World, j: &Journey) {
     let moving = view.reveal < 1.;
     *w.require_mut::<Transform>("tablet") = pose;
     w.require_mut::<Visible>("tablet").0 = true;
+    *w.require_mut::<Transform>("tablet-writing") = Transform {
+        position: pose.position + rotation * (Vec3::Y * 0.508 * pose.scale.y),
+        rotation: rotation * Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2),
+        scale: pose.scale,
+    };
+    w.require_mut::<Visible>("tablet-writing").0 = true;
     *w.require_mut::<Transform>("tablet-light") = Transform {
         position: pose.position + Quat::from_rotation_y(view.heading) * Vec3::new(-3., 7., 4.),
         ..Transform::default()

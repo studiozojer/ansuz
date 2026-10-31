@@ -201,6 +201,22 @@ fn face_pose(cell: Cell, lift: f32) -> Transform {
     let p = cell.center() + Vec3::Y * lift;
     Transform::at(p.x, p.y, p.z)
 }
+fn edge_name(prefix: &str, index: usize) -> String {
+    if index == 0 {
+        prefix.into()
+    } else {
+        format!("{prefix}-{index}")
+    }
+}
+fn frame_edges(width: f32) -> [(Vec3, Vec3); 4] {
+    let half = (2.38 - width) * 0.5;
+    [
+        (Vec3::new(0., 0., -half), Vec3::new(2.38, 0.008, width)),
+        (Vec3::new(0., 0., half), Vec3::new(2.38, 0.008, width)),
+        (Vec3::new(-half, 0., 0.), Vec3::new(width, 0.008, 2.38)),
+        (Vec3::new(half, 0., 0.), Vec3::new(width, 0.008, 2.38)),
+    ]
+}
 fn sync_records(w: &mut World, json: &str) {
     if w.resource::<SurfaceRecords>().loaded == json {
         return;
@@ -221,7 +237,14 @@ fn sync_records(w: &mut World, json: &str) {
         painted.push(w.spawn((
             face_pose(placement.cell(), 0.007),
             Mesh::cuboid(Vec3::new(2.38, 0.004, 2.38)),
-            Material::hex("#65777b").emissive(0.15, 0.2, 0.21),
+            Material::hex("#303a48").emissive(0.018, 0.025, 0.035),
+        )));
+        let mut mark = face_pose(placement.cell(), 0.018);
+        mark.position += Vec3::new(0.72, 0., 0.72);
+        painted.push(w.spawn((
+            mark,
+            Mesh::cuboid(Vec3::new(0.32, 0.006, 0.32)),
+            Material::hex("#a2aab4").emissive(0.08, 0.09, 0.11),
         )));
     }
     *w.resource_mut::<SurfaceRecords>() = SurfaceRecords {
@@ -232,13 +255,19 @@ fn sync_records(w: &mut World, json: &str) {
 }
 fn draw(w: &mut World, j: &Journey) {
     tablet::draw(w, j);
-    for (name, cell, lift) in [
-        ("hover-face", j.hovered, 0.015),
-        ("selected-face", j.selected, 0.023),
+    let hovered = j.hovered.filter(|cell| Some(*cell) != j.selected);
+    for (prefix, cell, width, lift) in [
+        ("hover-face", hovered, 0.045, 0.025),
+        ("selected-face", j.selected, 0.11, 0.035),
     ] {
-        w.require_mut::<Visible>(name).0 = cell.is_some();
-        if let Some(cell) = cell {
-            *w.require_mut::<Transform>(name) = face_pose(cell, lift);
+        for (index, (offset, _)) in frame_edges(width).into_iter().enumerate() {
+            let name = edge_name(prefix, index);
+            w.require_mut::<Visible>(&name).0 = cell.is_some();
+            if let Some(cell) = cell {
+                let mut pose = face_pose(cell, lift);
+                pose.position += offset;
+                *w.require_mut::<Transform>(&name) = pose;
+            }
         }
     }
     *w.require_mut::<Transform>("camera") = camera_pose(j);
@@ -306,16 +335,21 @@ impl Game for Ansuz {
             "camera",
             (camera_pose(&Journey::default()), Camera::default()),
         );
-        for (name, color) in [("hover-face", "#567076"), ("selected-face", "#9ab8be")] {
-            w.spawn_named(
-                name,
-                (
-                    Transform::default(),
-                    Mesh::cuboid(Vec3::new(2.38, 0.004, 2.38)),
-                    Material::hex(color).emissive(0.15, 0.20, 0.21),
-                    Visible(false),
-                ),
-            );
+        for (prefix, color, glow, width) in [
+            ("hover-face", "#77dce8", [0.10, 0.34, 0.38], 0.045),
+            ("selected-face", "#edb76b", [0.50, 0.24, 0.065], 0.11),
+        ] {
+            for (index, (_, size)) in frame_edges(width).into_iter().enumerate() {
+                w.spawn_named(
+                    &edge_name(prefix, index),
+                    (
+                        Transform::default(),
+                        Mesh::cuboid(size),
+                        Material::hex(color).emissive(glow[0], glow[1], glow[2]),
+                        Visible(false),
+                    ),
+                );
+            }
         }
         terrain_pick::setup(w);
         tablet::setup(w);
