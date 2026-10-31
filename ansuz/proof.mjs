@@ -66,9 +66,18 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   const journey = await open();
   const scene = await play(journey);
   const start = await scene.local_position('camera');
+  const records = JSON.stringify((await scene.resources()).Dataset);
+  check('authored records are present independently of geometry', records !== undefined);
   await journey.tap('next');
   await scene.run(100);
   check('selection does not move the camera', JSON.stringify(await scene.local_position('camera')) === JSON.stringify(start));
+  const firstShape = (await scene.resources()).Holograms?.shapes?.[0];
+  await journey.tap('solid-next');
+  await scene.run(100);
+  const secondShape = (await scene.resources()).Holograms?.shapes?.[0];
+  check('the shape control changes the focused hologram', firstShape !== undefined && secondShape !== firstShape, {firstShape, secondShape});
+  check('changing shape preserves records and provenance', JSON.stringify((await scene.resources()).Dataset) === records);
+  check('changing shape preserves the viewpoint', JSON.stringify(await scene.local_position('camera')) === JSON.stringify(start));
   await journey.tap('descend');
   await scene.run(3000);
   const low = await scene.local_position('camera');
@@ -78,6 +87,7 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   await scene.run(3000);
   const returned = await scene.local_position('camera');
   check('ascent restores the viewpoint', returned.every((n, i) => Math.abs(n - start[i]) < 0.001), returned);
+  check('navigation preserves records and provenance', JSON.stringify((await scene.resources()).Dataset) === records);
   await journey.resize(390, 844);
   await journey.screenshot(resolve(out, 'portrait.png'));
   await journey.close();

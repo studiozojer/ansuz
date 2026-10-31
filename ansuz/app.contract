@@ -5,6 +5,10 @@ shape Hud
   entered: bool
   travelling: bool
   altitude: number
+  active: bool
+  hover_title: string
+  hover_id: string
+  solid_name: string
 
 component Ansuz
   state again = false
@@ -29,6 +33,14 @@ component Ansuz
             text "voxel study" font="-exact-caption1" color="#a0a0a0"
           text hud.title font="-exact-title2" testId="place"
           text hud.detail font="-exact-subheadline" color="#a0a0a0"
+          if hud.active
+            row gap=12 align-items="center" flex-wrap="wrap"
+              text hud.hover_title font="-exact-caption1" color="#b7d8de" testId="hover-title"
+              text hud.solid_name font="-exact-caption1" testId="solid-name"
+              button action="solid-prev" testId="solid-prev" aria-label="Previous Platonic solid (Q)" padding=10 border-radius=10 background-color="#252525"
+                text "Previous solid"
+              button action="solid-next" testId="solid-next" aria-label="Next Platonic solid (E)" padding=10 border-radius=10 background-color="#252525"
+                text "Next solid"
           row gap=12 flex-wrap="wrap"
             button action="next" testId="next" padding=12 border-radius=12 background-color="#252525" disabled=hud.travelling
               text "Next region"

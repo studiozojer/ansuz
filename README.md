@@ -4,6 +4,8 @@ An experimental atlas for divination: I Ching, runes, tarot, and the notes and q
 
 This first prototype explores a dark, gridded voxel landscape with fixed clusters of sample readings. Drag to glide, touch a region to select it, then press **Descend**. **Ascend** restores the viewpoint you left. Arrow keys/WASD and **Next region** provide alternatives; **Gentle motion** removes the long camera transitions and coasting.
 
+On desktop, hover the top of one of the five topic platforms to illuminate it and reveal a floating wireframe Platonic solid. Scroll over that top to cycle tetrahedron, cube, octahedron, dodecahedron and icosahedron. **Next region** / N focuses a topic without a mouse; **Previous solid** / Q and **Next solid** / E change its representation. Gentle motion also stops hologram bobbing. Decorative terrain cells are not yet editable topics.
+
 Built with Exact's Rust game/GPU surface and a Contract interface. This is a new standalone app, not an Expo screen or a migration of Zhouyi. It has no account, journal persistence, or backend connection yet. The sample cards are landmarks, not working readings.
 
 ## Run
@@ -36,9 +38,19 @@ bun exact.mjs test web
 bun proof.mjs web
 ```
 
-The Rust tests exercise selection, descent/return, stable geography, reduced motion, and catching a coast with a new touch. The browser checks exercise the visible controls and render the real GPU scene. `pins.json` has no native proof baseline yet; do not run the SDK's full `prove` command locally because it also builds native hosts.
+The Rust tests exercise selection, descent/return, stable geography, reduced motion, catching a coast with a new touch, root records and hover geometry. The browser checks exercise the visible controls, preservation of records through shape changes, and the real GPU scene. `pins.json` has no native proof baseline yet; do not run the SDK's full `prove` command locally because it also builds native hosts.
+
+With the web build already served, `bun tools/check-hover.mjs http://localhost:8766` checks real desktop mouse hover, wheel cycling, leaving the top and reaching the shape buttons. Pass the actual preview URL if its port differs. Screenshots go to `artifacts/desktop-hover/`.
 
 The scene and camera live in `ansuz/logic/src/lib.rs`; the interface is `ansuz/app.contract`. SDK revision: `4e9000abbdaa8315ae864cdb8253af143aac510c`.
+
+## Records and views
+
+`ansuz/logic/src/records.rs` holds fixture objects with stable IDs and separate containment, derivation and association links. Derivation links can name a source block. Shapes and positions belong to presentation, so changing a hologram cannot change a reading's identity or provenance. Pure surface and provenance projections demonstrate resolving the same records through different layouts; a visible sphere-to-pyramid transition is not implemented yet.
+
+Weights are authored sample values. The provisional aggregation counts each reachable contained object once, including the root; associations and derivations do not add weight. The current motion experiment makes heavier aggregates bob more slowly. Both rules are tunable assumptions, not an implementation of the cited P-tree paper or a claim about sacred geometry. Shapes carry no fixed divination-type meaning.
+
+The source of this slice is David's written root-node outline and subsequent multiple-geometries north star, preserved separately in the armillary commons. The audio transcript is a separate source and has not been used as evidence for this implementation.
 
 ## Voxel terrain
 

@@ -3,6 +3,13 @@ test "choose a place, descend and return"
   tap "next"
   clock +100
   expect text "place" == "The Returning"
+  expect text "solid-name" == "Tetrahedron"
+  tap "solid-next"
+  clock +100
+  expect text "solid-name" == "Cube"
+  tap "solid-prev"
+  clock +100
+  expect text "solid-name" == "Tetrahedron"
   tap "descend"
   clock +2500
   expect text "level" == "IN THE REGION"

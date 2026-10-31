@@ -1,4 +1,8 @@
 use exact_game::*;
+pub mod hologram;
+pub mod records;
+use hologram::Holograms;
+use records::{Dataset, ROOT_IDS};
 
 pub const RADIUS: f32 = 120.0;
 pub const HIGH: f32 = 32.0;
@@ -43,6 +47,11 @@ pub struct Journey {
 pub struct Marker {
     pub place: u32,
 }
+/// The semantic reference is explicit; neither this entity name nor its cell is an ID.
+#[derive(Default, Component)]
+pub struct RootObject {
+    pub id: String,
+}
 #[derive(Default, Data)]
 struct Hud {
     title: String,
@@ -51,6 +60,10 @@ struct Hud {
     entered: bool,
     travelling: bool,
     altitude: f32,
+    active: bool,
+    hover_title: String,
+    hover_id: String,
+    solid_name: String,
 }
 
 pub fn normal(lon: f32, lat: f32) -> Vec3 {
@@ -161,6 +174,8 @@ impl Game for Ansuz {
             .button("descend", &["Enter"])
             .button("ascend", &["Escape"])
             .button("next", &["KeyN"])
+            .button("solid-next", &["KeyE"])
+            .button("solid-prev", &["KeyQ"])
     }
     fn setup(w: &mut World, _: &Options) {
         let j = Journey {
@@ -169,6 +184,7 @@ impl Game for Ansuz {
             ..Journey::default()
         };
         w.insert_resource(j);
+        w.insert_resource(Dataset::demo());
         w.insert_resource(Environment {
             background: Some(Color::hex("#080808")),
             zenith: [0.15; 3],
@@ -191,9 +207,12 @@ impl Game for Ansuz {
                 format!("place-{i}"),
                 (
                     surface(*x, *y, 6.0),
-                    Mesh::cube(1.0),
+                    Mesh::cuboid(hologram::ROOT_SIZE),
                     Material::hex(color).emissive(0.3, 0.3, 0.3),
                     Marker { place: i as u32 },
+                    RootObject {
+                        id: ROOT_IDS[i].into(),
+                    },
                 ),
             );
             w.spawn_named(
@@ -244,6 +263,7 @@ impl Game for Ansuz {
                 ),
             );
         }
+        hologram::setup(w);
         publish(w, &j);
     }
     fn tick(w: &mut World, input: &Input, args: &Options) {
@@ -252,8 +272,15 @@ impl Game for Ansuz {
         }
         let dt = w.dt();
         let mut j = *w.resource::<Journey>();
+        let mut holograms = *w.resource::<Holograms>();
         let pointer = input.pointer();
         let down = pointer.is_some_and(|p| p.down);
+        hologram::update_hover(w, input, &j, &mut holograms);
+        let consume_wheel = holograms.wheel(input.wheel().y, dt);
+        if consume_wheel && input.wheel().length_squared() > 0. {
+            j.vx = 0.;
+            j.vy = 0.;
+        }
         if input.pressed("contact") {
             j.vx = 0.;
             j.vy = 0.;
@@ -304,6 +331,14 @@ impl Game for Ansuz {
         }
         if input.pressed("next") {
             j.selected = (j.selected + 1) % PLACES.len() as i32;
+            holograms.focused = j.selected;
+            holograms.hovered = -1;
+        }
+        if input.pressed("solid-next") || input.pressed("solid-prev") {
+            if holograms.active() < 0 && j.selected >= 0 {
+                holograms.focused = j.selected;
+            }
+            holograms.cycle(if input.pressed("solid-next") { 1 } else { -1 });
         }
         if input.pressed("descend") {
             begin_descent(&mut j);
@@ -331,7 +366,11 @@ impl Game for Ansuz {
             }
         } else if !down {
             let stick = input.stick("move");
-            let wheel = input.wheel();
+            let wheel = if consume_wheel {
+                Vec2::ZERO
+            } else {
+                input.wheel()
+            };
             if stick.length_squared() > 0. {
                 j.vx = stick.x * j.altitude / RADIUS * 0.55;
                 j.vy = stick.y * j.altitude / RADIUS * 0.55;
@@ -360,21 +399,31 @@ impl Game for Ansuz {
                 Vec3::splat(if j.selected == i as i32 { 1.65 } else { 1. });
         }
         *w.resource_mut::<Journey>() = j;
+        hologram::draw(w, &holograms, &j, args.reduced);
+        *w.resource_mut::<Holograms>() = holograms;
         publish(w, &j);
     }
 }
 fn publish(w: &World, j: &Journey) {
+    let data = w.resource::<Dataset>();
+    let holograms = w.resource::<Holograms>();
+    let active = if j.travelling || j.was_down {
+        -1
+    } else {
+        holograms.active()
+    };
     let title = if j.selected >= 0 {
-        PLACES[j.selected as usize].0
+        data.object(ROOT_IDS[j.selected as usize])
+            .map_or("Untitled", |o| o.title.as_str())
     } else {
         "A landscape of readings"
     };
     let detail = if j.entered {
-        "I Ching · Return / Rune · Ansuz / A note left open"
+        "Hover a topic’s top. Scroll to change its solid; drag to explore."
     } else if j.selected >= 0 {
-        "9 sample readings · a place to explore"
+        "A sample topic · descend to explore its surface"
     } else {
-        "Glide across the surface. Touch a region to choose a place."
+        "Five sample topics inhabit this landscape. Choose one to descend."
     };
     w.publish_record(&Hud {
         title: title.into(),
@@ -383,5 +432,23 @@ fn publish(w: &World, j: &Journey) {
         entered: j.entered,
         travelling: j.travelling,
         altitude: j.altitude,
+        active: active >= 0,
+        hover_title: if active >= 0 {
+            data.object(ROOT_IDS[active as usize])
+                .map_or("Untitled", |o| o.title.as_str())
+                .into()
+        } else {
+            String::new()
+        },
+        hover_id: if active >= 0 {
+            ROOT_IDS[active as usize].into()
+        } else {
+            String::new()
+        },
+        solid_name: if active >= 0 {
+            hologram::SOLID_NAMES[holograms.shapes[active as usize] as usize].into()
+        } else {
+            String::new()
+        },
     });
 }
