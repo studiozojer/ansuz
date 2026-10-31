@@ -1,0 +1,23 @@
+.git
+.worktrees/
+.DS_Store
+node_modules/
+.expo/
+credentials.json
+*.mobileprovision
+*.p12
+*.p8
+*.key
+.env*
+# Fetch the pinned SDK on the worker rather than uploading local toolchains/caches.
+/tooling/exact2
+/ansuz/target
+/ansuz/artifacts
+/ansuz/dist*
+/ansuz/.exact
+/ansuz/.shells
+/ansuz/assets
+/ansuz/.baked-assets.json
+/ansuz/app.contract.d.ts
+/exact-artifacts
+**/__pycache__

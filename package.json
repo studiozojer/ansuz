@@ -1,0 +1,15 @@
+{
+  "name": "ansuz",
+  "version": "0.1.0",
+  "private": true,
+  "description": "EAS delivery configuration for the native Exact app",
+  "scripts": {
+    "build:ios": "eas build --platform ios --profile preview",
+    "build:simulator": "eas build --platform ios --profile simulator",
+    "check:delivery": "node --test scripts/delivery.test.cjs"
+  },
+  "devDependencies": {
+    "eas-cli": "27.2.0",
+    "expo-modules-autolinking": "58.0.16"
+  }
+}

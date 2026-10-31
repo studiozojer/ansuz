@@ -1,2 +1,11 @@
 .worktrees/
 .DS_Store
+node_modules/
+.expo/
+exact-artifacts/
+credentials.json
+*.mobileprovision
+*.p12
+*.p8
+*.key
+.env*

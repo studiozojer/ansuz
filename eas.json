@@ -1,0 +1,25 @@
+{
+  "cli": {
+    "version": ">= 27.2.0",
+    "appVersionSource": "local"
+  },
+  "build": {
+    "preview": {
+      "distribution": "internal",
+      "environment": "preview",
+      "bun": "1.4.2",
+      "config": "ios-device.yml",
+      "ios": {
+        "image": "latest",
+        "resourceClass": "large"
+      }
+    },
+    "simulator": {
+      "extends": "preview",
+      "config": "ios-simulator.yml",
+      "ios": {
+        "simulator": true
+      }
+    }
+  }
+}

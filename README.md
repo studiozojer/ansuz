@@ -27,6 +27,30 @@ bun exact.mjs web
 
 Use its localhost URL in a WebGPU-capable browser. This is a standalone Exact app; Zhouyi is unchanged. Phone behavior and performance remain unverified. Native builds must use EAS Build and simulator checks EAS Simulator; do not use the SDK's local native build commands here.
 
+## Install on iPhone with Expo EAS
+
+[EAS project: studiozojer/ansuz](https://expo.dev/accounts/studiozojer/projects/ansuz). EAS builds the native Exact application with UIKit and its GPU renderer. The root Expo config is delivery metadata; this app does not run in Expo Go. The pinned EAS CLI and `expo-modules-autolinking` are build/configuration tooling only. The latter is required by EAS's entitlement introspection for projects without a checked-in Xcode project; no Expo or React Native runtime is added.
+
+From the repository root:
+
+```sh
+npm ci
+npm run build:ios
+```
+
+The `preview` profile produces a signed, internally distributed `Ansuz.ipa`. Open the successful EAS build’s install link on a registered iPhone. It includes the scene, assets and local-note storage, so it does not need the browser preview server. The bundle ID is `studio.zojer.ansuz`; this installs alongside Zhouyi. Browser notes do not automatically transfer to the phone.
+
+First-build prerequisites:
+
+- Add `EXACT_GITHUB_TOKEN` as a **Secret** in this project's **preview** environment, with read access to `expo/snapback`. The pinned Exact SDK resolves that private Cargo dependency even though Ansuz uses local JSON notes. Do not put the token in source, app config, or a chat message.
+- Accept the current Apple Developer Program License Agreement for Zojer Studio (`497QWRKRQH`), then run `npx eas credentials:configure-build --platform ios --profile preview`. Reuse the studio's distribution certificate and create an ad-hoc profile for Ansuz including your phone. If needed, `npx eas device:create` registers a new device before building.
+
+As of 2026-10-31, the Expo project is linked and the registered iPhone `hazy` is visible. Apple signing setup stopped at Apple's “PLA Update available” error; the GitHub secret is also absent. No installable IPA or successful native build has been produced yet. These are setup blockers, not validated device behavior.
+
+For EAS Simulator, use `npm run build:simulator`. This profile needs the GitHub secret but no Apple distribution profile. The studio account has EAS Simulator access. Use the resulting build with EAS Simulator for the native walkthrough; an `.app` simulator artifact cannot be installed on a physical iPhone. Native compilation and simulator execution remain cloud-only.
+
+The custom workflows fetch Exact at the committed SDK pin, install its toolchain, compile the same `ansuz/` sources, and check the artifact's identity, version and platform before upload. The phone workflow imports only that build's credentials into a temporary worker keychain and cleans it up afterward. `.easignore` excludes credentials, local SDK checkouts and generated caches. App versions/build numbers are local in root `app.json` and passed to Exact; increment `expo.ios.buildNumber` for a new distributable build. `npm run check:delivery` checks identity consistency, local-build refusal, credential validation, and artifact rejection without compiling natively.
+
 ## Records and local saving
 
 `ansuz/data` saves a small JSON library through Exact's device-local storage adapter at `app:/data/surface-notes.json`. Notes survive reload on the same browser origin/profile. There is no account, cloud sync, import/export or multi-device ID namespace yet. Clearing browser site data removes this local library; changing preview ports uses a different browser origin. This prototype allows up to 4 MiB of library JSON.
