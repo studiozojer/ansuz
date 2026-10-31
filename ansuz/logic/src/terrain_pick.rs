@@ -10,12 +10,41 @@ pub struct Cell {
     pub x: i32,
     pub y: i32,
     pub z: i32,
+    /// 0:+Y (legacy top), 1:-Y, 2:+X, 3:-X, 4:+Z, 5:-Z.
+    pub face: u32,
 }
 
 impl Cell {
-    /// Center of the voxel's +Y face in the terrain's local coordinate system.
+    pub fn normal(self) -> Vec3 {
+        match self.face {
+            1 => -Vec3::Y,
+            2 => Vec3::X,
+            3 => -Vec3::X,
+            4 => Vec3::Z,
+            5 => -Vec3::Z,
+            _ => Vec3::Y,
+        }
+    }
     pub fn center(self) -> Vec3 {
-        Vec3::new(self.x as f32 + 0.5, self.y as f32 + 1., self.z as f32 + 0.5) * CELL
+        (Vec3::new(self.x as f32, self.y as f32, self.z as f32)
+            + Vec3::splat(0.5)
+            + self.normal() * 0.5)
+            * CELL
+    }
+    pub fn up(self) -> Vec3 {
+        if self.face <= 1 {
+            -Vec3::Z
+        } else {
+            Vec3::Y
+        }
+    }
+    pub fn right(self) -> Vec3 {
+        self.up().cross(self.normal())
+    }
+    pub fn rotation(self) -> exact_game::Quat {
+        Transform::at(0., 0., 0.)
+            .looking_at(-self.normal(), self.up())
+            .rotation
     }
 }
 
@@ -26,7 +55,7 @@ struct Triangle {
     c: Vec3,
     min: Vec3,
     max: Vec3,
-    top: bool,
+    normal: Vec3,
 }
 
 #[derive(Clone, Default, Data)]
@@ -60,13 +89,12 @@ pub fn setup(w: &mut World) {
     w.insert_resource(cache);
 }
 
-/// Closest actual terrain triangle wins. A side or underside blocks any top
-/// farther along the ray. Only upward faces approached from above are eligible.
+/// The nearest exposed face wins. Back faces still occlude, but cannot be selected.
 pub fn pick(w: &World, origin: Vec3, direction: Vec3) -> Option<Cell> {
     hit(w, origin, direction).and_then(|(_, cell)| cell)
 }
 
-/// Distance includes blocking side/underside triangles, whose cell is None.
+/// Distance includes back-facing triangles; their cell is None.
 pub fn hit(w: &World, origin: Vec3, direction: Vec3) -> Option<(f32, Option<Cell>)> {
     if !origin.is_finite() || !direction.is_finite() || direction.length_squared() < 1e-12 {
         return None;
@@ -168,7 +196,7 @@ impl TerrainPickCache {
                 c,
                 min: a.min(b).min(c),
                 max: a.max(b).max(c),
-                top: cross.normalize().dot(Vec3::Y) > 0.9999,
+                normal: cross.normalize(),
             });
         }
     }
@@ -232,9 +260,13 @@ impl TerrainPickCache {
                 for i in branch.start as usize..(branch.start + branch.count) as usize {
                     let triangle = &self.triangles[i];
                     if let Some(distance) = triangle_hit(origin, direction, triangle) {
-                        // At an exact shared edge, prefer rejection over reaching through a side.
+                        // Stable tie-breaking favours the face most square to the ray.
+                        let facing = triangle.normal.dot(direction);
+                        let previous = hit.map_or(f32::INFINITY, |index| {
+                            self.triangles[index].normal.dot(direction)
+                        });
                         if distance < nearest - EPSILON
-                            || ((distance - nearest).abs() <= EPSILON && !triangle.top)
+                            || ((distance - nearest).abs() <= EPSILON && facing < previous)
                         {
                             nearest = distance;
                             hit = Some(i);
@@ -263,7 +295,7 @@ impl TerrainPickCache {
             }
         }
         let triangle = &self.triangles[hit?];
-        if !triangle.top || direction.y >= 0. {
+        if triangle.normal.dot(direction) >= 0. {
             return Some((nearest, None));
         }
         let point = origin + direction * nearest;
@@ -274,12 +306,40 @@ impl TerrainPickCache {
             let upper = (max / CELL).round() as i32 - 1;
             ((value / CELL + 0.00001).floor() as i32).clamp(lower, upper.max(lower))
         };
+        let normal = triangle.normal;
+        let axis = if normal.x.abs() > 0.9999 {
+            0
+        } else if normal.y.abs() > 0.9999 {
+            1
+        } else if normal.z.abs() > 0.9999 {
+            2
+        } else {
+            return Some((nearest, None));
+        };
+        let positive = normal[axis] > 0.;
+        let mut cell = [0i32; 3];
+        for i in 0..3 {
+            cell[i] = if i == axis {
+                (triangle.a[i] / CELL).round() as i32 - i32::from(positive)
+            } else {
+                coordinate(point[i], triangle.min[i], triangle.max[i])
+            };
+        }
+        let face = match (axis, positive) {
+            (1, true) => 0,
+            (1, false) => 1,
+            (0, true) => 2,
+            (0, false) => 3,
+            (2, true) => 4,
+            _ => 5,
+        };
         Some((
             nearest,
             Some(Cell {
-                x: coordinate(point.x, triangle.min.x, triangle.max.x),
-                y: (triangle.a.y / CELL).round() as i32 - 1,
-                z: coordinate(point.z, triangle.min.z, triangle.max.z),
+                x: cell[0],
+                y: cell[1],
+                z: cell[2],
+                face,
             }),
         ))
     }
@@ -358,7 +418,12 @@ mod tests {
         let cache = TerrainPickCache::build(&quad_model(), 1);
         for x in -2..2 {
             for z in -1..1 {
-                let cell = Cell { x, y: 1, z };
+                let cell = Cell {
+                    x,
+                    y: 1,
+                    z,
+                    face: 0,
+                };
                 assert_eq!(
                     cache.cast(cell.center() + Vec3::Y * 20., -Vec3::Y),
                     Some(cell)
@@ -368,7 +433,12 @@ mod tests {
         }
         assert_eq!(
             cache.cast(Vec3::new(5., 20., 1.), -Vec3::Y),
-            Some(Cell { x: 1, y: 1, z: 0 })
+            Some(Cell {
+                x: 1,
+                y: 1,
+                z: 0,
+                face: 0
+            })
         );
         assert_eq!(
             cache.cast(Vec3::new(0., 0., 0.), Vec3::Y),
@@ -378,7 +448,7 @@ mod tests {
     }
 
     #[test]
-    fn nearest_side_blocks_top_behind_it() {
+    fn nearest_side_is_selected_instead_of_top_behind_it() {
         let mut model = quad_model();
         // +Z wall between the ray and the top; ray reaches the top at z=0.
         model.meshes.push(MeshData {
@@ -392,8 +462,11 @@ mod tests {
             .cast(origin, direction)
             .is_some());
         assert_eq!(
-            TerrainPickCache::build(&model, 1).cast(origin, direction),
-            None
+            TerrainPickCache::build(&model, 1)
+                .cast(origin, direction)
+                .unwrap()
+                .face,
+            4
         );
     }
 
@@ -414,7 +487,12 @@ mod tests {
         let cache = TerrainPickCache::build(&model, 2);
         assert_eq!(
             cache.cast(Vec3::new(6.25, 20., 1.25), -Vec3::Y),
-            Some(Cell { x: 2, y: 2, z: 0 })
+            Some(Cell {
+                x: 2,
+                y: 2,
+                z: 0,
+                face: 0
+            })
         );
     }
 
@@ -437,7 +515,8 @@ mod tests {
                 Some(Cell {
                     x: column * 4,
                     y: 1 + column % 3,
-                    z: 0
+                    z: 0,
+                    face: 0
                 })
             );
         }

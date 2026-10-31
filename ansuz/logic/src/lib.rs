@@ -1,12 +1,11 @@
 use exact_game::*;
 pub mod records;
-pub mod tablet;
 pub mod terrain_pick;
 use records::{Dataset, Object, Relation};
 use terrain_pick::Cell;
 
 pub const RADIUS: f32 = 120.;
-pub const START_HEIGHT: f32 = 28.;
+pub const START_HEIGHT: f32 = 9.;
 pub const ORBIT_HEIGHT: f32 = 32.;
 #[derive(Default, Args)]
 pub struct Options {
@@ -20,8 +19,11 @@ pub struct Journey {
     pub longitude: f32,
     pub latitude: f32,
     pub surface: bool,
-    pub blend: f32,
+    pub focus: Cell,
+    pub from: Transform,
+    pub travel: f32,
     pub quiet: f32,
+    /// Pan offsets in the focused face's right/up basis.
     pub x: f32,
     pub z: f32,
     pub altitude: f32,
@@ -38,7 +40,9 @@ impl Default for Journey {
             longitude: 0.,
             latitude: 1.05,
             surface: false,
-            blend: 0.,
+            focus: Cell::default(),
+            from: Transform::default(),
+            travel: 1.,
             quiet: 0.,
             x: 0.,
             z: 0.,
@@ -58,6 +62,7 @@ pub struct FacePlacement {
     pub x: i32,
     pub y: i32,
     pub z: i32,
+    pub face: u32,
 }
 impl FacePlacement {
     pub fn cell(&self) -> Cell {
@@ -65,6 +70,7 @@ impl FacePlacement {
             x: self.x,
             y: self.y,
             z: self.z,
+            face: self.face,
         }
     }
 }
@@ -94,6 +100,7 @@ struct Hud {
     x: i32,
     y: i32,
     z: i32,
+    face: u32,
     count: u32,
 }
 pub fn normal(lon: f32, lat: f32) -> Vec3 {
@@ -103,73 +110,84 @@ pub fn normal(lon: f32, lat: f32) -> Vec3 {
         math::cos(lon) * math::cos(lat),
     )
 }
+fn destination(j: &Journey) -> Transform {
+    if j.surface {
+        let center = j.focus.center() + j.focus.right() * j.x + j.focus.up() * j.z;
+        let eye = center + j.focus.normal() * j.altitude;
+        Transform::at(eye.x, eye.y, eye.z).looking_at(center, j.focus.up())
+    } else {
+        let n = normal(j.longitude, j.latitude);
+        let north = Vec3::new(
+            -math::sin(j.longitude) * math::sin(j.latitude),
+            math::cos(j.latitude),
+            -math::cos(j.longitude) * math::sin(j.latitude),
+        );
+        let eye = n * (RADIUS + ORBIT_HEIGHT);
+        Transform::at(eye.x, eye.y, eye.z)
+            .looking_at(eye + north * math::cos(0.82) - n * math::sin(0.82), n)
+    }
+}
 pub fn camera_pose(j: &Journey) -> Transform {
-    let n = normal(j.longitude, j.latitude);
-    let north = Vec3::new(
-        -math::sin(j.longitude) * math::sin(j.latitude),
-        math::cos(j.latitude),
-        -math::cos(j.longitude) * math::sin(j.latitude),
-    );
-    let eye = n * (RADIUS + ORBIT_HEIGHT);
-    let orbit = Transform::at(eye.x, eye.y, eye.z)
-        .looking_at(eye + north * math::cos(0.82) - n * math::sin(0.82), n);
-    let surface_y = math::sqrt((RADIUS * RADIUS - j.x * j.x - j.z * j.z).max(1.));
-    let top_eye = Vec3::new(j.x, surface_y + j.altitude, j.z);
-    let top = Transform::at(top_eye.x, top_eye.y, top_eye.z)
-        .looking_at(Vec3::new(j.x, surface_y, j.z), -Vec3::Z);
-    if j.blend <= 0. {
-        return orbit;
+    let to = destination(j);
+    if j.travel >= 1. {
+        return to;
     }
-    if j.blend >= 1. {
-        return top;
+    if j.travel <= 0. {
+        return j.from;
     }
-    let t = j.blend * j.blend * (3. - 2. * j.blend);
-    // Follow an arc outside the terrain instead of cutting through the sphere.
-    let arc = Quat::IDENTITY.slerp(
-        Quat::from_rotation_arc(eye.normalize(), top_eye.normalize()),
-        t,
-    );
+    let t = j.travel * j.travel * (3. - 2. * j.travel);
+    let a = j.from.position;
+    let b = to.position;
+    let position = if a.distance(b) < 20. {
+        a.lerp(b, t)
+    } else {
+        // Distant moves lift around the landscape rather than cutting a chord
+        // through its centre. Nearby moves stay local to the selected faces.
+        let arc = Quat::IDENTITY.slerp(Quat::from_rotation_arc(a.normalize(), b.normalize()), t);
+        let lift = ((RADIUS + 40.) - a.length().min(b.length())).max(0.)
+            * math::sin(std::f32::consts::PI * t);
+        arc * a.normalize() * (a.length() + (b.length() - a.length()) * t + lift)
+    };
     Transform {
-        position: arc * eye.normalize() * (eye.length() + (top_eye.length() - eye.length()) * t),
-        rotation: orbit.rotation.slerp(top.rotation, t),
+        position,
+        rotation: j.from.rotation.slerp(to.rotation, t),
         ..Transform::default()
     }
 }
-pub fn descend(j: &mut Journey) {
-    if j.surface {
-        return;
-    }
-    if let Some(cell) = j.selected {
-        let p = cell.center();
-        j.x = p.x;
-        j.z = p.z;
-    } else {
-        j.x = 0.;
-        j.z = 0.;
-    }
-    j.altitude = START_HEIGHT;
-    j.surface = true;
+fn stop(j: &mut Journey) {
     j.vx = 0.;
     j.vz = 0.;
     j.hovered = None;
+    j.was_down = false;
+}
+pub fn focus_surface(w: &World, j: &mut Journey, cell: Cell) {
+    let from = camera_pose(j);
+    j.focus = cell;
+    j.selected = Some(cell);
+    j.surface = true;
+    j.x = 0.;
+    j.z = 0.;
+    j.altitude = clearance(w, cell.center(), cell.normal(), START_HEIGHT);
+    j.from = from;
+    j.travel = 0.;
+    stop(j);
 }
 pub fn ascend(j: &mut Journey) {
+    j.from = camera_pose(j);
     j.surface = false;
-    j.vx = 0.;
-    j.vz = 0.;
-    j.hovered = None;
+    j.travel = 0.;
+    j.selected = None;
+    stop(j);
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Target {
-    Surface(Cell),
-    Tablet(Cell),
+fn clearance(w: &World, center: Vec3, normal: Vec3, wanted: f32) -> f32 {
+    match terrain_pick::hit(w, center + normal * 0.03, normal) {
+        Some((distance, Some(_))) => wanted.min((distance * 0.45).max(0.15)),
+        // A pan can put the reference plane below a higher neighbouring face.
+        // Do not pull the eye into that solid; the movement sweep below stops it.
+        _ => wanted,
+    }
 }
 pub fn pick(w: &World, point: Vec2, size: Vec2, j: &Journey) -> Option<Cell> {
-    pick_target(w, point, size, j).map(|hit| match hit {
-        Target::Surface(cell) | Target::Tablet(cell) => cell,
-    })
-}
-pub fn pick_target(w: &World, point: Vec2, size: Vec2, j: &Journey) -> Option<Target> {
     if size.min_element() <= 0.
         || point.x < 0.
         || point.y < 0.
@@ -186,20 +204,14 @@ pub fn pick_target(w: &World, point: Vec2, size: Vec2, j: &Journey) -> Option<Ta
             .inverse()
             .project_point3(ndc)
             .normalize();
-    let terrain = terrain_pick::hit(w, pose.position, ray);
-    // A clear/selection action can precede this frame's mesh update.
-    if j.selected.is_some() && w.resource::<tablet::TabletView>().cell == j.selected {
-        if let Some(distance) = tablet::hit(w, pose.position, ray) {
-            if terrain.is_none_or(|(blocking, _)| distance < blocking) {
-                return j.selected.map(Target::Tablet);
-            }
-        }
-    }
-    terrain.and_then(|(_, cell)| cell).map(Target::Surface)
+    terrain_pick::pick(w, pose.position, ray)
 }
 fn face_pose(cell: Cell, lift: f32) -> Transform {
-    let p = cell.center() + Vec3::Y * lift;
-    Transform::at(p.x, p.y, p.z)
+    Transform {
+        position: cell.center() + cell.normal() * lift,
+        rotation: cell.rotation() * Quat::from_rotation_x(std::f32::consts::FRAC_PI_2),
+        ..Transform::default()
+    }
 }
 fn edge_name(prefix: &str, index: usize) -> String {
     if index == 0 {
@@ -240,7 +252,7 @@ fn sync_records(w: &mut World, json: &str) {
             Material::hex("#303a48").emissive(0.018, 0.025, 0.035),
         )));
         let mut mark = face_pose(placement.cell(), 0.018);
-        mark.position += Vec3::new(0.72, 0., 0.72);
+        mark.position += mark.rotation * Vec3::new(0.72, 0., 0.72);
         painted.push(w.spawn((
             mark,
             Mesh::cuboid(Vec3::new(0.32, 0.006, 0.32)),
@@ -254,7 +266,14 @@ fn sync_records(w: &mut World, json: &str) {
     };
 }
 fn draw(w: &mut World, j: &Journey) {
-    tablet::draw(w, j);
+    w.require_mut::<Visible>("surface-writing").0 = j.selected.is_some();
+    if let Some(cell) = j.selected {
+        *w.require_mut::<Transform>("surface-writing") = Transform {
+            position: cell.center() + cell.normal() * 0.02,
+            rotation: cell.rotation(),
+            ..Transform::default()
+        };
+    }
     let hovered = j.hovered.filter(|cell| Some(*cell) != j.selected);
     for (prefix, cell, width, lift) in [
         ("hover-face", hovered, 0.045, 0.025),
@@ -265,7 +284,7 @@ fn draw(w: &mut World, j: &Journey) {
             w.require_mut::<Visible>(&name).0 = cell.is_some();
             if let Some(cell) = cell {
                 let mut pose = face_pose(cell, lift);
-                pose.position += offset;
+                pose.position += pose.rotation * offset;
                 *w.require_mut::<Transform>(&name) = pose;
             }
         }
@@ -280,7 +299,7 @@ fn draw(w: &mut World, j: &Journey) {
     let cell = j.selected.unwrap_or_default();
     w.publish_record(&Hud {
         surface: j.surface,
-        travelling: j.blend > 0. && j.blend < 1.,
+        travelling: j.travel < 1.,
         selected: j.selected.is_some(),
         occupied: object.is_some(),
         title: object.map_or("", |o| o.title.as_str()).into(),
@@ -289,6 +308,7 @@ fn draw(w: &mut World, j: &Journey) {
         x: cell.x,
         y: cell.y,
         z: cell.z,
+        face: cell.face,
         count: w.resource::<Dataset>().objects.len() as u32,
     });
 }
@@ -296,19 +316,16 @@ pub struct Ansuz;
 impl Game for Ansuz {
     const ID: &'static str = "ansuz";
     const HZ: u32 = 120;
-    const ASSETS: &'static [&'static str] = &["terrain.model", "tablet.model"];
+    const ASSETS: &'static [&'static str] = &["terrain.model"];
     type Args = Options;
     fn actions() -> Actions {
         Actions::new()
             .stick("move", Stick::wasd().or_arrows())
             .button("contact", &["MouseLeft"])
             .button("recenter", &["Home"])
-            .button("descend", &["KeyF"])
             .button("ascend", &["KeyR"])
             .button("clear", &["Escape"])
-            .button("turn-left", &["KeyQ"])
-            .button("turn-right", &["KeyE"])
-            .button("select-center", &["Enter"])
+            .button("select-center", &["Enter", "KeyF"])
             .button("closer", &["Equal"])
             .button("farther", &["Minus"])
     }
@@ -352,19 +369,29 @@ impl Game for Ansuz {
             }
         }
         terrain_pick::setup(w);
-        tablet::setup(w);
+        w.spawn_named(
+            "surface-writing",
+            (
+                Transform::default(),
+                Placed {
+                    anchor: [0.5, 0.5],
+                    ..Placed::child("surface-content")
+                        .width(2.0)
+                        .facing(Facing::Fixed)
+                },
+                Visible(false),
+            ),
+        );
         sync_records(w, &args.records);
         draw(w, &Journey::default());
     }
     fn tick(w: &mut World, input: &Input, args: &Options) {
         sync_records(w, &args.records);
         let mut j = *w.resource::<Journey>();
+        let previous = j;
         let dt = w.dt();
         if args.editing {
-            j.vx = 0.;
-            j.vz = 0.;
-            j.hovered = None;
-            j.was_down = false;
+            stop(&mut j);
             *w.resource_mut::<Journey>() = j;
             draw(w, &j);
             return;
@@ -374,34 +401,15 @@ impl Game for Ansuz {
         if input.pressed("recenter") {
             j = Journey::default();
         }
-        if j.selected.is_some() {
-            let turn = if input.pressed("turn-left") {
-                -0.35
-            } else if input.pressed("turn-right") {
-                0.35
-            } else {
-                0.
-            };
-            w.resource_mut::<tablet::TabletView>().turn += turn;
-        }
         if input.pressed("clear") {
             j.selected = None;
         }
-        if input.pressed("descend") {
-            descend(&mut j);
-        }
-        if input.pressed("ascend") {
+        if input.pressed("ascend") && j.surface {
             ascend(&mut j);
         }
-        let target = if j.surface { 1. } else { 0. };
-        if j.blend != target {
-            j.blend = if j.surface {
-                (j.blend + dt / 0.85).min(1.)
-            } else {
-                (j.blend - dt / 0.85).max(0.)
-            };
-            j.hovered = None;
-            j.was_down = false;
+        if j.travel < 1. {
+            j.travel = (j.travel + dt / 0.9).min(1.);
+            stop(&mut j);
             w.busy("camera transitioning");
             *w.resource_mut::<Journey>() = j;
             draw(w, &j);
@@ -422,7 +430,7 @@ impl Game for Ansuz {
                 if j.surface {
                     let scale = j.altitude * 0.85 / input.viewport().y.max(320.);
                     j.x -= p.delta.x * scale;
-                    j.z -= p.delta.y * scale;
+                    j.z += p.delta.y * scale;
                 } else if p.delta.length_squared() > 0. {
                     let scale = ORBIT_HEIGHT / RADIUS * 1.25 / input.viewport().y.max(320.);
                     let dx = -p.delta.x * scale / math::cos(j.latitude).max(0.3);
@@ -440,18 +448,13 @@ impl Game for Ansuz {
             let wheel = input.wheel();
             if j.surface {
                 j.x += stick.x * j.altitude * dt * 0.7;
-                j.z -= stick.y * j.altitude * dt * 0.7;
-                j.altitude = (j.altitude + wheel.y * 0.025).clamp(12., 70.);
+                j.z += stick.y * j.altitude * dt * 0.7;
+                j.altitude = (j.altitude + wheel.y * 0.015).clamp(0.3, 28.);
                 if input.pressed("closer") {
-                    j.altitude = (j.altitude - 5.).max(12.);
+                    j.altitude = (j.altitude - 2.).max(0.3);
                 }
                 if input.pressed("farther") {
-                    j.altitude = (j.altitude + 5.).min(70.);
-                }
-                let radius = math::sqrt(j.x * j.x + j.z * j.z);
-                if radius > 124. {
-                    j.x *= 124. / radius;
-                    j.z *= 124. / radius;
+                    j.altitude = (j.altitude + 2.).min(28.);
                 }
             } else {
                 if stick.length_squared() > 0. {
@@ -471,17 +474,33 @@ impl Game for Ansuz {
                 }
             }
         }
-        if input.released("contact") && j.quiet > 0.09 {
-            j.vx = 0.;
-            j.vz = 0.;
+        if j.surface {
+            // Stay near the focused patch while panning; a different face can
+            // be selected to establish another local plane.
+            j.x = j.x.clamp(-10., 10.);
+            j.z = j.z.clamp(-10., 10.);
+            let center = j.focus.center() + j.focus.right() * j.x + j.focus.up() * j.z;
+            j.altitude = clearance(w, center, j.focus.normal(), j.altitude);
+            let before = camera_pose(&previous).position;
+            let movement = camera_pose(&j).position - before;
+            if movement.length() > 0.00001
+                && terrain_pick::hit(w, before, movement.normalize())
+                    .is_some_and(|(distance, _)| distance < movement.length() + 0.12)
+            {
+                j.x = previous.x;
+                j.z = previous.z;
+                j.altitude = previous.altitude;
+            }
         }
-        if j.was_down && !down && !input.released("contact") {
+        if input.released("contact") && j.quiet > 0.09
+            || j.was_down && !down && !input.released("contact")
+        {
             j.vx = 0.;
             j.vz = 0.;
         }
         j.longitude = (j.longitude + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU)
             - std::f32::consts::PI;
-        j.latitude = j.latitude.clamp(-1.15, 1.15);
+        j.latitude = j.latitude.clamp(-1.55, 1.55);
         if j.vx != 0. || j.vz != 0. {
             w.busy("camera coasting");
         }
@@ -490,33 +509,25 @@ impl Game for Ansuz {
         } else {
             pointer.and_then(|p| pick(w, p.position, input.viewport(), &j))
         };
-        if input.released("contact") {
-            if let Some(p) = pointer {
-                let travel = p.press_origin.map_or(j.dragged, |origin| {
-                    (p.position - origin).length().max(j.dragged)
-                });
-                if travel < 7. {
-                    match pick_target(w, p.position, input.viewport(), &j) {
-                        Some(Target::Tablet(cell)) => {
-                            // Both ends must belong to the tablet. A drag or a press
-                            // on terrain must never open the editor on release.
-                            if p.press_origin.is_some_and(|start| {
-                                pick_target(w, start, input.viewport(), &j)
-                                    == Some(Target::Tablet(cell))
-                            }) {
-                                w.emit("open-tablet");
-                            }
-                        }
-                        Some(Target::Surface(cell)) => j.selected = Some(cell),
-                        None => j.selected = None,
-                    }
-                    j.vx = 0.;
-                    j.vz = 0.;
-                }
+        let click = if input.released("contact") && !input.pressed("clear") {
+            pointer
+                .filter(|p| {
+                    p.press_origin
+                        .is_some_and(|origin| (p.position - origin).length().max(j.dragged) < 7.)
+                })
+                .map(|p| p.position)
+        } else {
+            None
+        };
+        let point = if input.pressed("select-center") {
+            Some(input.viewport() * 0.5)
+        } else {
+            click
+        };
+        if let Some(point) = point {
+            if let Some(cell) = pick(w, point, input.viewport(), &j) {
+                focus_surface(w, &mut j, cell);
             }
-        }
-        if input.pressed("select-center") {
-            j.selected = pick(w, input.viewport() * 0.5, input.viewport(), &j);
         }
         j.was_down = down;
         *w.resource_mut::<Journey>() = j;

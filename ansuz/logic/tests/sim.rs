@@ -1,21 +1,24 @@
 use ansuz_logic::{
-    camera_pose, records::Dataset, Ansuz, Archive, Journey, Options, SurfaceRecords, ORBIT_HEIGHT,
-    START_HEIGHT,
+    ascend, camera_pose, focus_surface,
+    records::Dataset,
+    terrain_pick::{self, Cell},
+    Ansuz, Journey, Options, SurfaceRecords,
 };
-use exact_game::{Clock, InputEvent, PointerPhase, Sim, Transform, Vec3, Visible};
+use exact_game::{Camera, Clock, InputEvent, PointerPhase, Sim, Transform, Vec2, Vec3, Visible};
 fn game() -> Sim<Ansuz> {
     let mut g = exact_game::sim_with_art!(Options::default()).unwrap();
     g.viewport(800., 600.);
+    g.advance(0., Clock::Seekable);
     g
 }
-fn surface_game() -> Sim<Ansuz> {
+fn focus_game() -> Sim<Ansuz> {
     let mut g = game();
-    g.tap("KeyF");
-    g.run(1000.);
+    g.tap("Enter");
+    g.run(1100.);
     g
 }
-fn pointer(g: &mut Sim<Ansuz>, phase: PointerPhase, x: f32, dx: f32, buttons: u32, at_ms: f64) {
-    let at_ms = g.world().seconds() * 1000. + at_ms;
+fn pointer(g: &mut Sim<Ansuz>, phase: PointerPhase, x: f32, dx: f32, buttons: u32) {
+    let at_ms = g.world().seconds() * 1000. + 20.;
     g.input(InputEvent::Pointer {
         id: 1,
         phase,
@@ -30,227 +33,213 @@ fn pointer(g: &mut Sim<Ansuz>, phase: PointerPhase, x: f32, dx: f32, buttons: u3
     g.advance(at_ms + 10., Clock::Seekable);
 }
 #[test]
-fn fresh_world_is_empty_and_starts_in_atmospheric_view() {
+fn entry_is_atmospheric_empty_and_has_no_tablet() {
     let g = game();
-    let j = *g.world().resource::<Journey>();
-    assert_eq!(g.world().resource::<Dataset>().objects.len(), 0);
-    assert!(g.world().resource::<SurfaceRecords>().placements.is_empty());
-    assert!(g.get::<Transform>("place-0").is_none());
-    assert!(g.get::<Transform>("reading-0-0").is_none());
-    let camera = camera_pose(&j);
-    assert_eq!(
-        camera.position,
-        ansuz_logic::normal(0., 1.05) * (120. + ORBIT_HEIGHT)
-    );
+    let j = g.world().resource::<Journey>();
     assert!(!j.surface);
-    assert!((camera.rotation * -Vec3::Z).y < -0.2);
+    assert_eq!(j.travel, 1.);
+    assert!(g.world().resource::<Dataset>().objects.is_empty());
+    assert!(g.world().resource::<SurfaceRecords>().placements.is_empty());
+    assert!(g.get::<Transform>("tablet").is_none());
+    assert!(g.get::<Transform>("tablet-writing").is_none());
 }
 #[test]
-fn quick_click_selects_a_real_top_without_creating_an_object() {
-    let mut g = surface_game();
-    pointer(&mut g, PointerPhase::Down, 420., 0., 1, 1.);
-    pointer(&mut g, PointerPhase::Up, 420., 0., 0, 21.);
-    let cell = g
-        .world()
-        .resource::<Journey>()
-        .selected
-        .expect("real surface");
-    assert!(cell.center().y > 115.);
+fn click_moves_to_the_face_without_creating_content() {
+    let mut g = game();
+    let before = *g.get::<Transform>("camera").unwrap();
+    pointer(&mut g, PointerPhase::Down, 410., 0., 1);
+    pointer(&mut g, PointerPhase::Up, 410., 0., 0);
+    assert!(g.world().resource::<Journey>().surface);
+    g.run(1100.);
+    let j = g.world().resource::<Journey>();
+    let cell = j.selected.unwrap();
+    let pose = camera_pose(&j);
+    assert_ne!(pose, before);
+    assert!((pose.rotation * -Vec3::Z + cell.normal()).length() < 0.0001);
+    assert!((pose.position - cell.center() - cell.normal() * j.altitude).length() < 0.0001);
     assert!(g.get::<Visible>("selected-face").unwrap().0);
     assert!(g.world().resource::<Dataset>().objects.is_empty());
 }
 #[test]
-fn drag_moves_grid_without_selecting_and_release_is_still() {
-    let mut g = surface_game();
-    pointer(&mut g, PointerPhase::Down, 400., 0., 1, 1.);
-    pointer(&mut g, PointerPhase::Move, 460., 60., 1, 21.);
-    pointer(&mut g, PointerPhase::Up, 460., 0., 0, 41.);
+fn all_six_exposed_directions_focus_and_return_to_the_same_view() {
+    let g = game();
+    for face in 0..6 {
+        let normal = Cell {
+            face,
+            ..Cell::default()
+        }
+        .normal();
+        // Offset avoids shared-edge ambiguity at the poles.
+        let origin = normal * 170. + Vec3::splat(0.7);
+        let cell = terrain_pick::pick(g.world(), origin, -normal).unwrap();
+        assert_eq!(cell.face, face);
+        let mut j = *g.world().resource::<Journey>();
+        let before = camera_pose(&j);
+        focus_surface(g.world(), &mut j, cell);
+        assert_eq!(camera_pose(&j), before);
+        for step in 0..=100 {
+            j.travel = step as f32 / 100.;
+            let pose = camera_pose(&j);
+            // An outward ray exiting a back face would put the camera inside terrain.
+            if let Some((_, hit)) =
+                terrain_pick::hit(g.world(), pose.position, pose.position.normalize())
+            {
+                assert!(
+                    hit.is_some(),
+                    "camera entered terrain: face {face}, step {step}"
+                );
+            }
+        }
+        let pose = camera_pose(&j);
+        assert!((pose.rotation * -Vec3::Z + normal).length() < 0.0001);
+        assert!((pose.position - cell.center() - normal * j.altitude).length() < 0.0001);
+        ascend(&mut j);
+        j.travel = 1.;
+        assert_eq!(camera_pose(&j), before);
+    }
+}
+#[test]
+fn changing_faces_starts_at_current_camera_and_changes_its_local_basis() {
+    let g = game();
+    let mut j = *g.world().resource::<Journey>();
+    let a = terrain_pick::pick(g.world(), Vec3::new(0.7, 0.7, 170.), -Vec3::Z).unwrap();
+    let b = terrain_pick::pick(g.world(), Vec3::new(170., 0.7, 0.7), -Vec3::X).unwrap();
+    focus_surface(g.world(), &mut j, a);
+    j.travel = 1.;
+    let before = camera_pose(&j);
+    focus_surface(g.world(), &mut j, b);
+    assert_eq!(camera_pose(&j), before);
+    j.travel = 1.;
+    assert!((camera_pose(&j).rotation * -Vec3::Z + Vec3::X).length() < 0.0001);
+    assert_eq!(j.selected, Some(b));
+}
+#[test]
+fn drag_orbits_without_focusing_and_new_contact_catches_the_coast() {
+    let mut g = game();
+    pointer(&mut g, PointerPhase::Down, 400., 0., 1);
+    pointer(&mut g, PointerPhase::Move, 460., 60., 1);
+    pointer(&mut g, PointerPhase::Up, 460., 0., 0);
+    let lon = g.world().resource::<Journey>().longitude;
+    assert!(lon < 0.);
+    assert!(!g.world().resource::<Journey>().surface);
+    g.run(100.);
+    assert!(g.world().resource::<Journey>().longitude < lon);
+    pointer(&mut g, PointerPhase::Down, 460., 0., 1);
+    let caught = g.world().resource::<Journey>().longitude;
+    g.run(100.);
+    assert_eq!(g.world().resource::<Journey>().longitude, caught);
+}
+#[test]
+fn focused_pan_is_local_and_does_not_change_selection() {
+    let mut g = focus_game();
     let before = *g.world().resource::<Journey>();
-    assert!(before.x < 0.);
-    assert!(before.selected.is_none());
-    g.run(500.);
-    assert_eq!(g.world().resource::<Journey>().x, before.x);
-    g.tap("Home");
-    g.run(30.);
-    assert_eq!(g.world().resource::<Journey>().x, 0.);
+    pointer(&mut g, PointerPhase::Down, 400., 0., 1);
+    pointer(&mut g, PointerPhase::Move, 430., 30., 1);
+    pointer(&mut g, PointerPhase::Up, 430., 0., 0);
+    let after = *g.world().resource::<Journey>();
+    assert!(after.x < 0.);
+    assert_eq!(after.selected, before.selected);
+    g.run(300.);
+    assert_eq!(g.world().resource::<Journey>().x, after.x);
 }
 #[test]
-fn keyboard_can_select_and_clear_a_surface() {
-    let mut g = surface_game();
-    g.tap("Enter");
-    g.run(30.);
-    assert!(g.world().resource::<Journey>().selected.is_some());
-    g.tap("Escape");
-    g.run(30.);
-    assert!(g.world().resource::<Journey>().selected.is_none());
-}
-#[test]
-fn stored_object_is_referenced_by_placement_and_survives_camera_navigation() {
-    let json = r#"{"version":1,"next_id":2,"objects":[{"id":"note-1","title":"Question","body":"A thought","content_kind":"note","authored_weight":1}],"relations":[],"placements":[{"object_id":"note-1","x":0,"y":47,"z":0}]}"#;
-    let archive: Archive = exact_game::json::from_str(json).unwrap();
-    assert_eq!(archive.objects[0].id, archive.placements[0].object_id);
+fn selected_and_occupied_markers_align_with_side_faces() {
+    let json = r#"{"version":1,"next_id":2,"objects":[{"id":"note-1","title":"Side","body":"Remember","content_kind":"note","authored_weight":1}],"relations":[],"placements":[{"object_id":"note-1","x":47,"y":0,"z":0,"face":2}]}"#;
     let mut g: Sim<Ansuz> = exact_game::sim_with_art!(Options {
         records: json.into(),
         editing: false
     })
     .unwrap();
-    g.viewport(800., 600.);
-    g.hold("KeyD", 400.);
-    g.tap("Home");
+    let cell = Cell {
+        x: 47,
+        y: 0,
+        z: 0,
+        face: 2,
+    };
+    let mut j = *g.world().resource::<Journey>();
+    focus_surface(g.world(), &mut j, cell);
+    j.travel = 1.;
+    *g.world().resource_mut::<Journey>() = j;
     g.run(30.);
+    assert!(
+        (g.get::<Transform>("selected-face").unwrap().rotation * Vec3::Y - Vec3::X).length()
+            < 0.0001
+    );
     assert_eq!(g.world().resource::<Dataset>().objects[0].id, "note-1");
-    assert_eq!(g.world().resource::<Dataset>().objects[0].body, "A thought");
-}
-
-#[test]
-fn descent_is_a_subview_and_ascent_restores_the_rotated_view() {
-    let mut g = game();
-    g.hold("KeyD", 300.);
-    g.run(2500.);
-    let before = *g.get::<Transform>("camera").unwrap();
-    let records = g.world().resource::<Dataset>().clone();
-    g.tap("KeyF");
-    for _ in 0..10 {
-        g.run(100.);
-        assert!(g.get::<Transform>("camera").unwrap().position.length() > RADIUS_FOR_TEST);
-    }
-    let j = *g.world().resource::<Journey>();
-    assert!(j.surface);
-    assert_eq!(j.blend, 1.);
-    let pose = camera_pose(&j);
-    assert_eq!(pose.position, Vec3::new(0., 120. + START_HEIGHT, 0.));
-    assert!((pose.rotation * -Vec3::Z + Vec3::Y).length() < 0.0001);
-    g.tap("KeyR");
-    g.run(1000.);
-    assert_eq!(*g.get::<Transform>("camera").unwrap(), before);
-    assert_eq!(*g.world().resource::<Dataset>(), records);
-}
-const RADIUS_FOR_TEST: f32 = 120.;
-#[test]
-fn atmospheric_drag_coasts_and_a_new_contact_catches_it() {
-    let mut g = game();
-    pointer(&mut g, PointerPhase::Down, 400., 0., 1, 1.);
-    pointer(&mut g, PointerPhase::Move, 460., 60., 1, 21.);
-    pointer(&mut g, PointerPhase::Up, 460., 0., 0, 21.);
-    let lon = g.world().resource::<Journey>().longitude;
-    assert!(lon < 0.);
-    assert!(g.world().resource::<Journey>().selected.is_none());
-    g.run(100.);
-    assert!(g.world().resource::<Journey>().longitude < lon);
-    pointer(&mut g, PointerPhase::Down, 460., 0., 1, 1.);
-    let caught = g.world().resource::<Journey>().longitude;
-    g.run(100.);
-    assert_eq!(g.world().resource::<Journey>().longitude, caught);
-}
-
-#[test]
-fn selected_surface_opens_one_turnable_tablet_without_creating_content() {
-    use ansuz_logic::{
-        pick,
-        tablet::{hit, TabletView},
-    };
-    use exact_game::{PointLight, Vec2};
-    let mut g = surface_game();
-    assert!(!g.get::<Visible>("tablet").unwrap().0);
-    let before = *g.get::<Transform>("camera").unwrap();
-    g.tap("Enter");
-    g.run(600.);
-    let j = *g.world().resource::<Journey>();
-    let cell = j.selected.unwrap();
-    assert!(g.get::<Visible>("tablet").unwrap().0);
-    assert_eq!(g.world().resource::<TabletView>().cell, Some(cell));
-    let tablet = *g.get::<Transform>("tablet").unwrap();
-    assert!(tablet.position.y > cell.center().y + 3.);
-    assert_eq!(*g.get::<Transform>("camera").unwrap(), before);
-    assert!(g.world().resource::<Dataset>().objects.is_empty());
-    // A click on the risen object keeps its owning surface, even though the ray
-    // would land on a neighbouring terrain cell behind the tilted tablet.
-    let ray = (tablet.position - before.position).normalize();
-    assert!(hit(g.world(), before.position, ray).is_some());
-    let local = before.rotation.inverse() * (tablet.position - before.position);
-    let clip = exact_game::Camera::default()
-        .matrix(Vec2::new(800., 600.))
-        .project_point3(local);
-    let screen = Vec2::new((clip.x + 1.) * 400., (1. - clip.y) * 300.);
     assert_eq!(
-        pick(g.world(), screen, Vec2::new(800., 600.), &j),
-        Some(cell)
+        g.world().resource::<SurfaceRecords>().placements[0].cell(),
+        cell
     );
-    let cleared = Journey {
-        selected: None,
-        ..j
-    };
-    assert!(matches!(
-        ansuz_logic::pick_target(g.world(), screen, Vec2::new(800., 600.), &cleared),
-        Some(ansuz_logic::Target::Surface(_))
-    ));
-    g.tap("KeyE");
-    g.run(40.);
-    assert_ne!(
-        g.get::<Transform>("tablet").unwrap().rotation,
-        tablet.rotation
-    );
-    assert_eq!(g.world().resource::<TabletView>().cell, Some(cell));
-    g.tap("Escape");
-    g.run(40.);
-    assert!(!g.get::<Visible>("tablet").unwrap().0);
-    assert_eq!(g.get::<PointLight>("tablet-light").unwrap().intensity, 0.);
-    assert!(g.world().resource::<Dataset>().objects.is_empty());
-}
-
-#[test]
-fn atmospheric_start_exposes_selectable_tops() {
-    let mut g = game();
-    g.tap("Enter");
-    g.run(600.);
-    assert!(g.world().resource::<Journey>().selected.is_some());
-    assert!(g.get::<Visible>("tablet").unwrap().0);
-    assert!(g.world().resource::<Dataset>().objects.is_empty());
-}
-
-#[test]
-fn tablet_click_opens_its_note_but_drag_and_terrain_click_do_not() {
-    use exact_game::Vec2;
-    let mut g = game();
-    g.tap("Enter");
-    g.run(600.);
-    assert!(g.take_messages().is_empty());
-    let cell = g.world().resource::<Journey>().selected;
-    let camera = *g.get::<Transform>("camera").unwrap();
-    let tablet = *g.get::<Transform>("tablet").unwrap();
-    let local = camera.rotation.inverse() * (tablet.position - camera.position);
-    let clip = exact_game::Camera::default()
+    let camera = camera_pose(&j);
+    let ndc = Camera::default()
         .matrix(Vec2::new(800., 600.))
-        .project_point3(local);
-    let (x, y) = ((clip.x + 1.) * 400., (1. - clip.y) * 300.);
-    let send = |g: &mut Sim<Ansuz>, phase, x, y, dx, buttons| {
-        let at_ms = g.world().seconds() * 1000. + 20.;
-        g.input(InputEvent::Pointer {
-            id: 1,
-            phase,
-            x,
-            y,
-            dx,
-            dy: 0.,
-            buttons,
-            at_ms,
-            player: 0,
-        });
-        g.advance(at_ms + 10., Clock::Seekable);
-    };
-    send(&mut g, PointerPhase::Down, x, y, 0., 1);
-    send(&mut g, PointerPhase::Up, x, y, 0., 0);
-    assert_eq!(g.take_messages(), vec!["open-tablet"]);
-    assert_eq!(g.world().resource::<Journey>().selected, cell);
-    assert!(g.world().resource::<Dataset>().objects.is_empty());
-    send(&mut g, PointerPhase::Down, x, y, 0., 1);
-    send(&mut g, PointerPhase::Move, x + 30., y, 30., 1);
-    send(&mut g, PointerPhase::Up, x + 30., y, 0., 0);
-    assert!(g.take_messages().is_empty());
-    g.tap("Home");
-    g.run(40.);
-    send(&mut g, PointerPhase::Down, 400., 300., 0., 1);
-    send(&mut g, PointerPhase::Up, 400., 300., 0., 0);
-    assert!(g.world().resource::<Journey>().selected.is_some());
-    assert!(g.take_messages().is_empty());
+        .project_point3(camera.rotation.inverse() * (cell.center() - camera.position));
+    assert!(ndc.x.abs() < 0.0001 && ndc.y.abs() < 0.0001);
+}
+
+#[test]
+fn visible_face_transitions_stay_outside_the_terrain() {
+    let g = game();
+    let start = *g.world().resource::<Journey>();
+    let mut faces = Vec::new();
+    for y in [180., 260., 340., 420., 500.] {
+        for x in [120., 260., 400., 540., 680.] {
+            if let Some(cell) =
+                ansuz_logic::pick(g.world(), Vec2::new(x, y), Vec2::new(800., 600.), &start)
+            {
+                faces.push(cell);
+            }
+        }
+    }
+    assert!(faces.len() > 10);
+    assert!(faces.iter().any(|c| c.face != 0));
+    for cell in faces {
+        let mut j = start;
+        focus_surface(g.world(), &mut j, cell);
+        for step in 0..=100 {
+            j.travel = step as f32 / 100.;
+            let pose = camera_pose(&j);
+            if let Some((_, hit)) =
+                terrain_pick::hit(g.world(), pose.position, pose.position.normalize())
+            {
+                assert!(
+                    hit.is_some(),
+                    "camera entered terrain at {cell:?}, step {step}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn focused_pan_and_zoom_do_not_enter_neighbouring_terrain() {
+    let mut g = game();
+    for face in 0..6 {
+        let normal = Cell {
+            face,
+            ..Cell::default()
+        }
+        .normal();
+        let cell =
+            terrain_pick::pick(g.world(), normal * 170. + Vec3::splat(0.7), -normal).unwrap();
+        for key in ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"] {
+            let mut j = Journey::default();
+            focus_surface(g.world(), &mut j, cell);
+            j.travel = 1.;
+            *g.world().resource_mut::<Journey>() = j;
+            for step in 0..100 {
+                g.hold(key, 30.);
+                if step % 10 == 0 {
+                    g.tap("Equal");
+                }
+                let eye = camera_pose(&g.world().resource::<Journey>()).position;
+                if let Some((_, hit)) = terrain_pick::hit(g.world(), eye, eye.normalize()) {
+                    assert!(
+                        hit.is_some(),
+                        "pan entered terrain at face {face}, key {key}"
+                    );
+                }
+            }
+        }
+    }
 }

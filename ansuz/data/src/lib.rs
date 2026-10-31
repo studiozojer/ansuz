@@ -28,6 +28,26 @@ pub struct AppData {
     load_error: String,
 }
 
+// Missing orientation is the original +Y placement. Normalize the in-memory
+// view; the existing file is untouched until a successful authored save.
+fn with_faces(document: &Json) -> Json {
+    let mut result = document.clone();
+    if let Some(placements) = result["placements"].as_array_mut() {
+        for placement in placements {
+            if placement.get("face").is_none() {
+                placement["face"] = json!(0);
+            }
+        }
+    }
+    result
+}
+fn face(placement: &Json) -> Option<u32> {
+    match placement.get("face") {
+        None => Some(0),
+        Some(value) => value.as_u64().filter(|n| *n < 6).map(|n| n as u32),
+    }
+}
+
 fn library(document: &Json, error: &str) -> Value {
     library_value(document, error, true)
 }
@@ -37,7 +57,7 @@ fn library_value(document: &Json, error: &str, ready: bool) -> Value {
     // The canvas mounts only after storage has answered, so its first live
     // binding contains the library rather than the bake-time placeholder.
     Value::record(vec![
-        Value::str(&document.to_string()),
+        Value::str(&with_faces(document).to_string()),
         Value::str(error),
         Value::Bool(ready),
     ])
@@ -95,6 +115,7 @@ fn validate(document: &Json) -> Result<(), String> {
             coordinate(&placement["x"]).ok_or("Invalid cell x.")?,
             coordinate(&placement["y"]).ok_or("Invalid cell y.")?,
             coordinate(&placement["z"]).ok_or("Invalid cell z.")?,
+            face(placement).ok_or("Invalid face orientation.")?,
         );
         if !ids.contains(id) || !cells.insert(cell) {
             return Err("Missing object or duplicate cell placement.".into());
@@ -117,8 +138,8 @@ fn validate(document: &Json) -> Result<(), String> {
 }
 
 fn edit(document: &Json, args: &[Value]) -> Result<Json, String> {
-    let [x, y, z, title, body] = args else {
-        return Err("Expected cell x, y, z, title and body.".into());
+    let [x, y, z, orientation, title, body] = args else {
+        return Err("Expected cell x, y, z, face, title and body.".into());
     };
     let axis = |v: &Value| -> Result<i32, String> {
         let n = v.as_number().ok_or("Invalid cell coordinate.")?;
@@ -128,6 +149,10 @@ fn edit(document: &Json, args: &[Value]) -> Result<Json, String> {
         Ok(n as i32)
     };
     let (x, y, z) = (axis(x)?, axis(y)?, axis(z)?);
+    let orientation = axis(orientation)?;
+    if !(0..6).contains(&orientation) {
+        return Err("Invalid face orientation.".into());
+    }
     let title = title.as_str().ok_or("Invalid title.")?.trim();
     let body = body.as_str().ok_or("Invalid body.")?;
     if title.is_empty() && body.trim().is_empty() {
@@ -139,12 +164,12 @@ fn edit(document: &Json, args: &[Value]) -> Result<Json, String> {
         title
     };
     validate(document)?;
-    let mut next = document.clone();
+    let mut next = with_faces(document);
     let existing = next["placements"]
         .as_array()
         .unwrap()
         .iter()
-        .find(|p| p["x"] == x && p["y"] == y && p["z"] == z)
+        .find(|p| p["x"] == x && p["y"] == y && p["z"] == z && p["face"] == orientation)
         .map(|p| p["object_id"].as_str().unwrap().to_owned());
     if let Some(id) = existing {
         let object = next["objects"]
@@ -178,7 +203,7 @@ fn edit(document: &Json, args: &[Value]) -> Result<Json, String> {
         next["placements"]
             .as_array_mut()
             .unwrap()
-            .push(json!({"object_id":id,"x":x,"y":y,"z":z}));
+            .push(json!({"object_id":id,"x":x,"y":y,"z":z,"face":orientation}));
     }
     if next.to_string().len() > MAX_DOCUMENT_BYTES {
         return Err("This prototype's local library is full (4 MiB).".into());

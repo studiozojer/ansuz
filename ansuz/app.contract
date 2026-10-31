@@ -9,6 +9,7 @@ shape Hud
   x: number
   y: number
   z: number
+  face: number
   count: number
 shape SurfaceNotes
   json: string
@@ -25,19 +26,18 @@ component Ansuz
   state cellX = 0
   state cellY = 0
   state cellZ = 0
+  state cellFace = 0
   resource library = loadSurfaceNotes() as shape SurfaceNotes
   resource hud = exactSurface("world") as shape Hud
   mutation saved as shape SaveResult refreshes library then afterSave
   derive saveError = match saved { case some(r) => r.error, case none => "" }
-  action heard(text: string)
-    if text == "open-tablet" and hud.selected and not editing and not hud.travelling and library.error == "" and not pending(library)
-      openEditor()
   action openEditor
     title = hud.title
     body = hud.body
     cellX = hud.x
     cellY = hud.y
     cellZ = hud.z
+    cellFace = hud.face
     editing = true
   action editTitle(value: string)
     title = value
@@ -47,17 +47,17 @@ component Ansuz
     editing = false
   action save
     if (title.trim() != "" or body.trim() != "") and not pending(saved)
-      send saved = saveSurfaceNote(cellX, cellY, cellZ, title, body)
+      send saved = saveSurfaceNote(cellX, cellY, cellZ, cellFace, title, body)
   action afterSave
     if match saved { case some(r) => r.ok, case none => false }
       editing = false
   view
     main width="100%" height="100%" background-color="#090909" color="#dedede"
       if library.ready
-        canvas surface=world(records=library.json, editing=editing) message=heard testId="world" width="100%" height="100%" position="relative"
-          column testId="tablet-content" display=(hud.selected ? "flex" : "none") width=270 height=330 box-sizing="border-box" padding=8 gap=16 overflow="hidden" pointer-events="none" color="#29251f"
-            text (editing ? (title != "" ? title : "New note") : (hud.occupied ? hud.title : "New note")) testId="tablet-title" font-size=27 line-height="32px" font-weight=700 max-height=96 overflow="hidden"
-            text (editing ? body : (hud.occupied ? hud.body : "Click to write")) testId="tablet-body" font-size=20 line-height="27px" white-space="pre-wrap" overflow="hidden"
+        canvas surface=world(records=library.json, editing=editing) testId="world" width="100%" height="100%" position="relative"
+          column testId="surface-content" display=(hud.selected and hud.occupied ? "flex" : "none") width=240 height=240 box-sizing="border-box" padding=8 gap=12 overflow="hidden" pointer-events="none" color="#c3cbd3"
+            text (editing ? title : hud.title) testId="surface-title" font-size=26 line-height="30px" font-weight=700 max-height=90 overflow="hidden"
+            text (editing ? body : hud.body) testId="surface-body" font-size=20 line-height="26px" white-space="pre-wrap" overflow="hidden"
           row position="absolute" top="env(safe-area-inset-top, 0px)" left=0 right=0 padding=20 justify-content="space-between" align-items="center" gap=12
             text "ANSUZ" font-size="1.1rem" letter-spacing="0.22em" font-weight=600
             row gap=8
@@ -65,10 +65,7 @@ component Ansuz
                 text "Recenter"
               if hud.surface
                 button action="ascend" testId="ascend" disabled=(editing or hud.travelling) padding=10 border-radius=10 background-color="#b7d8de" color="#090909"
-                  text "Ascend"
-              else
-                button action="descend" testId="descend" disabled=(editing or hud.travelling) padding=10 border-radius=10 background-color="#b7d8de" color="#090909"
-                  text "Descend"
+                  text "Landscape"
           if editing
             column position="absolute" bottom="max(16px, env(safe-area-inset-bottom, 0px))" right=16 width="min(340px, calc(100% - 32px))" box-sizing="border-box" padding=20 gap=12 border-radius=12 background-color="#15191af5" testId="editor"
               text "On this surface" font="-exact-headline"
@@ -89,12 +86,6 @@ component Ansuz
                 text (hud.occupied ? hud.title : "Empty surface") font="-exact-headline" testId="face-title"
                 if hud.occupied
                   text hud.body font="-exact-subheadline" max-height=120 overflow="auto" testId="face-body"
-                row gap=8 align-items="center"
-                  text "Click tablet to open" font="-exact-caption1" color="#b3b3b3"
-                  button action="turn-left" testId="tablet-left" aria-label="Turn tablet left" padding=10 background-color="#252525" border-radius=8
-                    text "↶"
-                  button action="turn-right" testId="tablet-right" aria-label="Turn tablet right" padding=10 background-color="#252525" border-radius=8
-                    text "↷"
                 row gap=12 justify-content="flex-end"
                   button action="clear" testId="deselect" padding=10
                     text "Close"
@@ -102,10 +93,10 @@ component Ansuz
                     text (hud.occupied ? "Edit" : "Add a note")
             else
               column position="absolute" bottom="max(20px, env(safe-area-inset-bottom, 0px))" left=20 right=20 align-items="center" gap=8
-                text (hud.surface ? "Choose a top surface to add something." : "Explore the landscape. Descend to add something.") color="#b3b3b3" font="-exact-subheadline" testId="hint"
+                text (hud.surface ? "Click a face to focus it." : "Click any face to move in.") color="#b3b3b3" font="-exact-subheadline" testId="hint"
                 row gap=12
                   button action="select-center" testId="select-center" disabled=hud.travelling padding=8 background-color="#252525" border-radius=8
-                    text "Select centre"
+                    text "Focus centre"
                   if hud.surface
                     button action="closer" aria-label="Zoom in" testId="closer" padding=8
                       text "+"

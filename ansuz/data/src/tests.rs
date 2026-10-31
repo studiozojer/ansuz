@@ -6,6 +6,7 @@ fn args(x: f64, title: &str, body: &str) -> Vec<Value> {
         Value::Number(x),
         Value::Number(0.),
         Value::Number(-8.),
+        Value::Number(0.),
         Value::str(title),
         Value::str(body),
     ]
@@ -201,4 +202,43 @@ fn invalid_edits_and_broken_placements_are_refused_without_mutation() {
         .unwrap()
         .push(placement);
     assert!(validate(&duplicate).is_err());
+}
+
+#[test]
+fn legacy_top_and_new_sides_keep_separate_ids_and_survive_reload() {
+    let mut legacy = edit(&empty(), &args(2., "Original top", "Keep this")).unwrap();
+    legacy["placements"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("face");
+    validate(&legacy).unwrap();
+    let mut data = AppData::default();
+    load(&mut data, Some(&legacy));
+    assert_eq!(
+        data.document.as_ref().unwrap(),
+        &legacy,
+        "read never rewrites the old file"
+    );
+    let top_id = legacy["objects"][0]["id"].clone();
+    let mut next = legacy;
+    for direction in 1..6 {
+        let mut side = args(2., &format!("Face {direction}"), "Different note");
+        side[3] = Value::Number(direction as f64);
+        next = edit(&next, &side).unwrap();
+    }
+    assert_eq!(next["objects"].as_array().unwrap().len(), 6);
+    assert_eq!(next["placements"][0]["face"], 0);
+    assert_eq!(next["objects"][0]["id"], top_id);
+    assert_eq!(next["objects"][0]["body"], "Keep this");
+    let edited = edit(&next, &args(2., "Top edited", "Still top")).unwrap();
+    assert_eq!(edited["objects"][0]["id"], top_id);
+    assert_eq!(edited["objects"][1], next["objects"][1]);
+    let mut reload = AppData::default();
+    load(&mut reload, Some(&edited));
+    assert_eq!(reload.document, Some(edited));
+    let mut invalid = args(2., "Invalid", "");
+    invalid[3] = Value::Number(6.);
+    assert!(edit(&next, &invalid).is_err());
+    next["placements"][1]["face"] = json!(-1);
+    assert!(validate(&next).is_err());
 }
