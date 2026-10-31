@@ -10,7 +10,12 @@ try {
  const errors=[];page.on('pageerror',e=>errors.push(e.message));
  const ready=()=>page.waitForFunction(()=>{const el=document.querySelector('[data-gpu-input]');return el&&globalThis.exact?.gpu?.wantsInput(Number(el.dataset.view));},null,{timeout:60000});
  const textIs=(id,text)=>page.waitForFunction(({id,text})=>document.querySelector(`[data-testid="${id}"]`)?.textContent===text,{id,text});
- await page.goto(process.argv[2]??'http://127.0.0.1:8766');await ready();
+ await page.goto(process.argv[2]??'http://127.0.0.1:8766');await ready();const atmosphere=await page.screenshot({path:resolve(out,'atmosphere.png')});
+ await page.mouse.move(640,350);await page.mouse.down();await page.mouse.move(820,420,{steps:12});await page.mouse.up();await page.waitForTimeout(250);
+ const rotated=await page.screenshot({path:resolve(out,'rotated.png')});
+ if(atmosphere.equals(rotated))throw new Error('Atmospheric drag did not move the scene');
+ await page.locator('[data-testid="reset"]').click();await page.waitForTimeout(100);
+ await page.locator('[data-testid="descend"]').click();await page.waitForTimeout(1100);
  await page.screenshot({path:resolve(out,'empty.png')});
  if(await page.locator('[data-testid="next"], [data-testid="solid-next"]').count())throw new Error('Old cluster controls remain');
  await page.mouse.move(650,330);await page.waitForTimeout(150);
@@ -21,7 +26,7 @@ try {
  await page.locator('[data-testid="note-body"]').fill('What grows here?');
  await page.locator('[data-testid="save"]').click();await textIs('face-title','A surface question');
  await page.screenshot({path:resolve(out,'saved.png')});
- await page.reload();await ready();
+ await page.reload();await ready();await page.locator('[data-testid="descend"]').click();await page.waitForTimeout(1100);
  await page.mouse.click(650,330);await textIs('face-title','A surface question');await textIs('face-body','What grows here?');
  await page.locator('[data-testid="add-note"]').click();
  await page.locator('[data-testid="note-title"]').fill('The same root, edited');
@@ -30,8 +35,10 @@ try {
  await page.locator('[data-testid="add-note"]').click();
  await page.locator('[data-testid="note-body"]').fill('A neighbouring thought');
  await page.locator('[data-testid="save"]').click();await textIs('face-title','Untitled note');
- await page.reload();await ready();await page.mouse.click(650,330);await textIs('face-title','The same root, edited');
+ await page.reload();await ready();await page.locator('[data-testid="descend"]').click();await page.waitForTimeout(1100);await page.mouse.click(650,330);await textIs('face-title','The same root, edited');
  await page.locator('[data-testid="deselect"]').click();
+ await page.locator('[data-testid="ascend"]').click();await page.waitForTimeout(1100);
+ await page.locator('[data-testid="descend"]').click();await page.waitForTimeout(1100);
  await page.setViewportSize({width:390,height:844});await page.screenshot({path:resolve(out,'portrait.png')});
  if(errors.length)throw new Error(errors.join('\n'));
  console.log('PASS actual face selection, local create/edit/reload, distinct neighbouring face, body-only note, portrait');

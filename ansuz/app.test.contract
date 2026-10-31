@@ -1,5 +1,7 @@
 test "add a note directly to a terrain face and keep it after relaunch"
   clock data
+  tap "descend"
+  clock +1000
   tap "select-center"
   clock +100
   expect text "face-title" == "Empty surface"
@@ -12,6 +14,8 @@ test "add a note directly to a terrain face and keep it after relaunch"
   expect text "face-title" == "A first question"
   reload
   clock data
+  tap "descend"
+  clock +1000
   tap "select-center"
   clock +100
   clock data

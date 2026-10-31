@@ -6,6 +6,7 @@ use terrain_pick::Cell;
 
 pub const RADIUS: f32 = 120.;
 pub const START_HEIGHT: f32 = 28.;
+pub const ORBIT_HEIGHT: f32 = 32.;
 #[derive(Default, Args)]
 pub struct Options {
     #[live]
@@ -15,6 +16,11 @@ pub struct Options {
 }
 #[derive(Clone, Copy, Resource)]
 pub struct Journey {
+    pub longitude: f32,
+    pub latitude: f32,
+    pub surface: bool,
+    pub blend: f32,
+    pub quiet: f32,
     pub x: f32,
     pub z: f32,
     pub altitude: f32,
@@ -28,6 +34,11 @@ pub struct Journey {
 impl Default for Journey {
     fn default() -> Self {
         Self {
+            longitude: 0.,
+            latitude: 0.,
+            surface: false,
+            blend: 0.,
+            quiet: 0.,
             x: 0.,
             z: 0.,
             altitude: START_HEIGHT,
@@ -72,6 +83,8 @@ pub struct SurfaceRecords {
 }
 #[derive(Default, Data)]
 struct Hud {
+    surface: bool,
+    travelling: bool,
     selected: bool,
     occupied: bool,
     title: String,
@@ -82,12 +95,68 @@ struct Hud {
     z: i32,
     count: u32,
 }
-/// Start at the north pole, looking straight down at the actual +Y voxel faces.
-/// Fixed screen axes avoid the singular orbit basis at the pole.
+pub fn normal(lon: f32, lat: f32) -> Vec3 {
+    Vec3::new(
+        math::sin(lon) * math::cos(lat),
+        math::sin(lat),
+        math::cos(lon) * math::cos(lat),
+    )
+}
 pub fn camera_pose(j: &Journey) -> Transform {
+    let n = normal(j.longitude, j.latitude);
+    let north = Vec3::new(
+        -math::sin(j.longitude) * math::sin(j.latitude),
+        math::cos(j.latitude),
+        -math::cos(j.longitude) * math::sin(j.latitude),
+    );
+    let eye = n * (RADIUS + ORBIT_HEIGHT);
+    let orbit = Transform::at(eye.x, eye.y, eye.z)
+        .looking_at(eye + north * math::cos(0.82) - n * math::sin(0.82), n);
     let surface_y = math::sqrt((RADIUS * RADIUS - j.x * j.x - j.z * j.z).max(1.));
-    let eye = Vec3::new(j.x, surface_y + j.altitude, j.z);
-    Transform::at(eye.x, eye.y, eye.z).looking_at(Vec3::new(j.x, surface_y, j.z), -Vec3::Z)
+    let top_eye = Vec3::new(j.x, surface_y + j.altitude, j.z);
+    let top = Transform::at(top_eye.x, top_eye.y, top_eye.z)
+        .looking_at(Vec3::new(j.x, surface_y, j.z), -Vec3::Z);
+    if j.blend <= 0. {
+        return orbit;
+    }
+    if j.blend >= 1. {
+        return top;
+    }
+    let t = j.blend * j.blend * (3. - 2. * j.blend);
+    // Follow an arc outside the terrain instead of cutting through the sphere.
+    let arc = Quat::IDENTITY.slerp(
+        Quat::from_rotation_arc(eye.normalize(), top_eye.normalize()),
+        t,
+    );
+    Transform {
+        position: arc * eye.normalize() * (eye.length() + (top_eye.length() - eye.length()) * t),
+        rotation: orbit.rotation.slerp(top.rotation, t),
+        ..Transform::default()
+    }
+}
+pub fn descend(j: &mut Journey) {
+    if j.surface {
+        return;
+    }
+    if let Some(cell) = j.selected {
+        let p = cell.center();
+        j.x = p.x;
+        j.z = p.z;
+    } else {
+        j.x = 0.;
+        j.z = 0.;
+    }
+    j.altitude = START_HEIGHT;
+    j.surface = true;
+    j.vx = 0.;
+    j.vz = 0.;
+    j.hovered = None;
+}
+pub fn ascend(j: &mut Journey) {
+    j.surface = false;
+    j.vx = 0.;
+    j.vz = 0.;
+    j.hovered = None;
 }
 pub fn pick(w: &World, point: Vec2, size: Vec2, j: &Journey) -> Option<Cell> {
     if size.min_element() <= 0.
@@ -160,6 +229,8 @@ fn draw(w: &mut World, j: &Journey) {
         .and_then(|p| dataset.object(&p.object_id));
     let cell = j.selected.unwrap_or_default();
     w.publish_record(&Hud {
+        surface: j.surface,
+        travelling: j.blend > 0. && j.blend < 1.,
         selected: j.selected.is_some(),
         occupied: object.is_some(),
         title: object.map_or("", |o| o.title.as_str()).into(),
@@ -182,6 +253,8 @@ impl Game for Ansuz {
             .stick("move", Stick::wasd().or_arrows())
             .button("contact", &["MouseLeft"])
             .button("recenter", &["Home"])
+            .button("descend", &["KeyF"])
+            .button("ascend", &["KeyR"])
             .button("clear", &["Escape"])
             .button("select-center", &["Enter"])
             .button("closer", &["Equal"])
@@ -246,36 +319,103 @@ impl Game for Ansuz {
         if input.pressed("clear") {
             j.selected = None;
         }
+        if input.pressed("descend") {
+            descend(&mut j);
+        }
+        if input.pressed("ascend") {
+            ascend(&mut j);
+        }
+        let target = if j.surface { 1. } else { 0. };
+        if j.blend != target {
+            j.blend = if j.surface {
+                (j.blend + dt / 0.85).min(1.)
+            } else {
+                (j.blend - dt / 0.85).max(0.)
+            };
+            j.hovered = None;
+            j.was_down = false;
+            w.busy("camera transitioning");
+            *w.resource_mut::<Journey>() = j;
+            draw(w, &j);
+            return;
+        }
         if input.pressed("contact") {
             j.vx = 0.;
             j.vz = 0.;
             j.dragged = 0.;
+            j.quiet = 0.;
+        }
+        if down {
+            j.quiet = (j.quiet + dt).min(0.2);
         }
         if down && j.was_down {
             if let Some(p) = pointer {
                 j.dragged += p.delta.length();
-                let scale = j.altitude * 0.85 / input.viewport().y.max(320.);
-                j.x -= p.delta.x * scale;
-                j.z -= p.delta.y * scale;
+                if j.surface {
+                    let scale = j.altitude * 0.85 / input.viewport().y.max(320.);
+                    j.x -= p.delta.x * scale;
+                    j.z -= p.delta.y * scale;
+                } else if p.delta.length_squared() > 0. {
+                    let scale = ORBIT_HEIGHT / RADIUS * 1.25 / input.viewport().y.max(320.);
+                    let dx = -p.delta.x * scale / math::cos(j.latitude).max(0.3);
+                    let dy = p.delta.y * scale;
+                    j.longitude += dx;
+                    j.latitude += dy;
+                    j.vx = (dx / j.quiet.max(dt)).clamp(-1.2, 1.2);
+                    j.vz = (dy / j.quiet.max(dt)).clamp(-1.2, 1.2);
+                    j.quiet = 0.;
+                }
             }
         }
-        // No inertial drift in this first surface editor: release leaves the grid still.
         if !down {
             let stick = input.stick("move");
-            j.x += stick.x * j.altitude * dt * 0.7;
-            j.z -= stick.y * j.altitude * dt * 0.7;
-            j.altitude = (j.altitude + input.wheel().y * 0.025).clamp(12., 70.);
+            let wheel = input.wheel();
+            if j.surface {
+                j.x += stick.x * j.altitude * dt * 0.7;
+                j.z -= stick.y * j.altitude * dt * 0.7;
+                j.altitude = (j.altitude + wheel.y * 0.025).clamp(12., 70.);
+                if input.pressed("closer") {
+                    j.altitude = (j.altitude - 5.).max(12.);
+                }
+                if input.pressed("farther") {
+                    j.altitude = (j.altitude + 5.).min(70.);
+                }
+                let radius = math::sqrt(j.x * j.x + j.z * j.z);
+                if radius > 124. {
+                    j.x *= 124. / radius;
+                    j.z *= 124. / radius;
+                }
+            } else {
+                if stick.length_squared() > 0. {
+                    j.vx = stick.x * ORBIT_HEIGHT / RADIUS * 0.55;
+                    j.vz = stick.y * ORBIT_HEIGHT / RADIUS * 0.55;
+                }
+                j.longitude += j.vx * dt + wheel.x * ORBIT_HEIGHT / RADIUS * 0.001;
+                j.latitude += j.vz * dt - wheel.y * ORBIT_HEIGHT / RADIUS * 0.001;
+                let friction = math::exp(-4.8 * dt);
+                j.vx *= friction;
+                j.vz *= friction;
+                if j.vx.abs() < 0.0001 {
+                    j.vx = 0.;
+                }
+                if j.vz.abs() < 0.0001 {
+                    j.vz = 0.;
+                }
+            }
         }
-        if input.pressed("closer") {
-            j.altitude = (j.altitude - 5.).max(12.);
+        if input.released("contact") && j.quiet > 0.09 {
+            j.vx = 0.;
+            j.vz = 0.;
         }
-        if input.pressed("farther") {
-            j.altitude = (j.altitude + 5.).min(70.);
+        if j.was_down && !down && !input.released("contact") {
+            j.vx = 0.;
+            j.vz = 0.;
         }
-        let radius = math::sqrt(j.x * j.x + j.z * j.z);
-        if radius > 85. {
-            j.x *= 85. / radius;
-            j.z *= 85. / radius;
+        j.longitude = (j.longitude + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU)
+            - std::f32::consts::PI;
+        j.latitude = j.latitude.clamp(-1.15, 1.15);
+        if j.vx != 0. || j.vz != 0. {
+            w.busy("camera coasting");
         }
         j.hovered = if down {
             None
@@ -289,6 +429,8 @@ impl Game for Ansuz {
                 });
                 if travel < 7. {
                     j.selected = pick(w, p.position, input.viewport(), &j);
+                    j.vx = 0.;
+                    j.vz = 0.;
                 }
             }
         }

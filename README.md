@@ -2,9 +2,9 @@
 
 An experimental surface for divination, questions and notes, built with Exact's Rust game/GPU surface and Contract UI.
 
-The app starts empty, looking straight down from the top of a dark voxel sphere. Hover an actual terrain square to highlight it; click to select it, then **Add a note**. A saved note colors that square. Click it again to read or edit. No raised topic cubes, 3×3 clusters, sample readings, floating holograms or particles are seeded.
+The app starts in an atmospheric 3D view of the empty voxel landscape. Drag or scroll to rotate around it, with momentum that a new touch catches. **Descend** opens the top-down surface editor; **Ascend** returns to the atmospheric viewpoint you left. Select a terrain face before descending to focus that face, or descend without a selection to start at the sphere’s top. In the editor, hover an actual terrain square to highlight it; click to select it, then **Add a note**. A saved note colors that square. Click it again to read or edit. No raised topic cubes, 3×3 clusters, sample readings, floating holograms or particles are seeded.
 
-Drag to move across the upper terrain; scroll to zoom. **Top** returns to the starting camera without deleting notes. Arrow keys/WASD pan, Enter or **Select centre** selects the square at the centre, Escape clears selection, and +/− zoom. Navigation pauses while the note editor is open. The current pan bounds cover the upper hemisphere; this is a deliberately simple surface-editing experiment.
+In the surface subview, drag to pan and scroll to zoom. **Recenter** returns to the starting atmospheric view without deleting notes. Arrow keys/WASD move in either view, F descends, R ascends, Enter or **Select centre** selects a face, and Escape clears selection. Navigation pauses while writing. Transitions follow an arc outside the sphere, and the atmospheric viewpoint is retained while you work in the subview.
 
 ## Run
 
@@ -31,7 +31,7 @@ Use its localhost URL in a WebGPU-capable browser. This is a standalone Exact ap
 
 Objects have stable IDs, content and separate typed relationships. A placement links an object ID to a voxel face; the coordinate is not its identity. Selecting an empty face creates nothing. Saving creates a note and placement; editing preserves its ID and relationships. Failed writes retain the draft, and unreadable existing data is not silently replaced with an empty library.
 
-The north star remains one dataset with many spatial projections. The current UI has one terrain view. The earlier raised-cluster and hologram interpretation was explicitly rejected in favor of working directly on terrain surfaces; that experiment remains in git history. Record-level projection tests remain as groundwork, without claiming a visible sphere/pyramid/tree transformation.
+The north star remains one dataset with many spatial projections. The current UI has atmospheric and top-down navigation over the same terrain and records. The earlier raised-cluster and hologram interpretation was explicitly rejected in favor of working directly on terrain surfaces; that experiment remains in git history. Record-level projection tests remain as groundwork, without claiming a visible sphere/pyramid/tree transformation.
 
 ## Check
 
@@ -45,7 +45,7 @@ bun proof.mjs web
 bun tools/check-surfaces.mjs http://localhost:8766
 ```
 
-The last command requires an already served browser build; pass its actual URL. It uses real mouse selection and checks create, edit, reload, adjacent faces and body-only notes. Screenshots go to `artifacts/surfaces/`. Hostless tests cover picking, camera/selection, identity, projections and storage failures. Browser proof covers rendering, deterministic save/restore and the surface/editor flow. Its overall status remains UNVERIFIED without a cross-host baseline; do not run the full SDK `prove` command locally because it builds native hosts.
+The last command requires an already served browser build; pass its actual URL. It uses real mouse selection and checks create, edit, reload, adjacent faces and body-only notes. Screenshots go to `artifacts/surfaces/`. Hostless tests cover picking, camera transitions, orbit/coast/selection, identity, projections and storage failures. Browser proof covers rendering, deterministic save/restore and the surface/editor flow. Its overall status remains UNVERIFIED without a cross-host baseline; do not run the full SDK `prove` command locally because it builds native hosts.
 
 SDK revision: `4e9000abbdaa8315ae864cdb8253af143aac510c`.
 
