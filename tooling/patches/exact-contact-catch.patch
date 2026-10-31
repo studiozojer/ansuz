@@ -1,0 +1,132 @@
+diff --git a/host/apple/Sources/ExactDrag/TransformDragIOS.swift b/host/apple/Sources/ExactDrag/TransformDragIOS.swift
+index 1cda04aa..02ec0039 100644
+--- a/host/apple/Sources/ExactDrag/TransformDragIOS.swift
++++ b/host/apple/Sources/ExactDrag/TransformDragIOS.swift
+@@ -2,8 +2,25 @@ import ExactKit
+ import CExact
+ #if os(iOS) || os(tvOS)
+ import UIKit
++import UIKit.UIGestureRecognizerSubclass
+ import QuartzCore
+
++#if !os(tvOS)
++/// Pause on contact without recognizing a pan, so stationary taps still select.
++private final class TransformContactPan: UIPanGestureRecognizer {
++    var contactBegan: (() -> Void)?
++    var contactReset: (() -> Void)?
++    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
++        super.touchesBegan(touches, with: event)
++        if state == .possible { contactBegan?() }
++    }
++    override func reset() {
++        contactReset?()
++        super.reset()
++    }
++}
++#endif
++
+ extension NodeView {
+     func transformDragModel() -> TransformDragPosition? {
+         TransformDragPosition(x: Double(translate.x), y: Double(translate.y), scale: Double(scale))
+@@ -20,7 +37,18 @@ extension NodeView {
+         // tvOS has no multi-finger pan or pinch.
+         #if !os(tvOS)
+         if presenter?.transformBindings[id]?.target != nil, transformRecognizer == nil {
+-            let pan = UIPanGestureRecognizer(target: self, action: #selector(transformDragging(_:)))
++            let pan = TransformContactPan(target: self, action: #selector(transformDragging(_:)))
++            pan.contactBegan = { [weak self] in
++                guard let self, self.style["touch_action"]?.string == "none", self.transformHold == nil else { return }
++                self.transformHold = TransformDragHold(self, time: CACurrentMediaTime())
++            }
++            pan.contactReset = { [weak self] in
++                guard let self, self.transformContact?.panning != true, self.transformContact?.pinching != true else { return }
++                // A tap or cancelled contact resumes the authored destination;
++                // a recognized pan already finished through transformDragging.
++                let hold = self.transformHold; self.transformHold = nil
++                hold?.cancel()
++            }
+             pan.maximumNumberOfTouches = 2; pan.delegate = self
+             let pinch = UIPinchGestureRecognizer(target: self, action: #selector(transformDragging(_:)))
+             pinch.delegate = self
+diff --git a/host/apple/Sources/ExactKit/IOS/NodeViewIOS.swift b/host/apple/Sources/ExactKit/IOS/NodeViewIOS.swift
+index 4066f372..1c9b0e6a 100644
+--- a/host/apple/Sources/ExactKit/IOS/NodeViewIOS.swift
++++ b/host/apple/Sources/ExactKit/IOS/NodeViewIOS.swift
+@@ -943,7 +943,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
+                     guard !chain.contains(where: { $0.isHidden || !$0.isUserInteractionEnabled }) else { return nil }
+                     return NodeView.hitChildren(in: holder, at: self.convert(point, to: holder), with: event)
+                 }
+-                return child.hitTest(self.convert(point, to: child), with: event)
++                return child.hitTest((child as? NodeView)?.transformDragHitPoint(point, from: self) ?? self.convert(point, to: child), with: event)
+             }) { return hit }
+             // CSS `pointer-events: none` (inherited): the box is never the
+             // target, so a touch goes to what is under it — a header's blur
+diff --git a/host/apple/Sources/ExactKit/IOS/TransformFactsIOS.swift b/host/apple/Sources/ExactKit/IOS/TransformFactsIOS.swift
+index 7db71abe..b3539145 100644
+--- a/host/apple/Sources/ExactKit/IOS/TransformFactsIOS.swift
++++ b/host/apple/Sources/ExactKit/IOS/TransformFactsIOS.swift
+@@ -27,6 +27,19 @@ package final class TransformContact {
+     #endif
+ }
+
++extension NodeView {
++    func transformDragHitPoint(_ point: CGPoint, from parent: UIView) -> CGPoint? {
++        guard superview === parent, presenter?.transformBindings.values.contains(where: { $0.target == id }) == true,
++              layer.animationKeys()?.isEmpty == false, let displayed = layer.presentation() else { return nil }
++        // Transform-drag targets are centred affine pairs. UIKit's model
++        // conversion hits their destination while Core Animation still draws
++        // them elsewhere; invert the displayed pair for contact hit testing.
++        let offset = CGPoint(x: point.x - center.x, y: point.y - center.y)
++            .applying(displayed.affineTransform().inverted())
++        return CGPoint(x: offset.x + bounds.midX, y: offset.y + bounds.midY)
++    }
++}
++
+ extension Presenter {
+     func transformFacts(_ binding: TransformDragBinding) -> TransformGeometryFacts? {
+         guard let handle = views[binding.id], let targetID = binding.target, let clipID = binding.clip,
+diff --git a/host/web/motion-glue.js b/host/web/motion-glue.js
+index 236a8bba..f44c05c4 100644
+--- a/host/web/motion-glue.js
++++ b/host/web/motion-glue.js
+@@ -643,7 +643,7 @@ export function motionController({views,now,generation,request,applyBatch,inert,
+         const d=drag;drag=null;active.delete(id);
+         if(!d)return;
+         if(d.pair) {
+-          suppressClick=true;
++          suppressClick=!d.caught||d.recognized===true;
+           if(defer)d.binding.pendingEnds=d.pair;
+           else for(const h of d.pair)api.end(h,[0,0],true);
+         }
+@@ -739,7 +739,10 @@ export function motionController({views,now,generation,request,applyBatch,inert,
+         if(second&&d.deferred){d.deferred=false;for(const pointer of d.pointers.keys())el.setPointerCapture(pointer);}
+         if(!d.deferred)el.setPointerCapture(e.pointerId);e.preventDefault();
+         // A second finger is a pinch: recognized at once, then re-anchored.
+-        if(second){if(!d.pair&&!begin(d))return;if(drag===d)anchor(d);}
++        if(second){d.recognized=true;if(!d.pair&&!begin(d))return;if(drag===d)anchor(d);}
++        // An exclusively manipulated surface catches on contact. Recognition
++        // still waits for travel so a stationary contact can remain a tap.
++        else if(!d.deferred&&getComputedStyle(el).touchAction==='none'){d.caught=true;begin(d);}
+       });
+       const move=e=>{
+         const d=drag;if(!d||!d.pointers.has(e.pointerId))return false;
+@@ -748,6 +751,10 @@ export function motionController({views,now,generation,request,applyBatch,inert,
+         checkGeometry(d.binding);
+         if(drag!==d)return false;
+         if(!stop.valid()){stop();return false;}
++        if(d.caught&&!d.recognized){
++          if(Math.hypot(e.clientX-d.x,e.clientY-d.y)<gesture().slop)return false;
++          d.recognized=true;
++        }
+         if(!d.pair) {
+           if(Math.hypot(e.clientX-d.x,e.clientY-d.y)<gesture().slop)return false;
+           if(!begin(d))return false;
+@@ -759,7 +766,7 @@ export function motionController({views,now,generation,request,applyBatch,inert,
+       on('pointermove',move);
+       const finish=e=>{
+         const d=drag;if(!d||!d.pointers.has(e.pointerId))return;
+-        if(e.type!=='pointerup'||!d.pair){stop();return;}
++        if(e.type!=='pointerup'||!d.pair||d.caught&&!d.recognized){stop();return;}
+         d.pointers.set(e.pointerId,[e.clientX,e.clientY]);
+         if(d.pointers.size>1) {
+           // One finger lifts: its partner pans on from where the pinch left it.

@@ -26,9 +26,8 @@ try {
  await el('handle').tap();await frames();assert.match(await el('selection').innerText(),/^Selected/);
  await reset();
  await drag(42,48);const moved=await settled();
- // Exact recognizes after four points of slop and anchors there; allow one input step.
- assert(Math.abs(moved.x-initial.x-42)<8,'Finger horizontal travel lost');
- assert(Math.abs(moved.y-initial.y-48)<8,'Finger vertical travel lost');
+ assert(Math.abs(moved.x-initial.x-42)<2,'Finger horizontal travel lost');
+ assert(Math.abs(moved.y-initial.y-48)<2,'Finger vertical travel lost');
  assert(!((await el('selection').innerText()).startsWith('Selected')),'Drag also selected');
  console.log('PASS real finger drag and tap arbitration');
  await reset();const focal=center(await box());
@@ -46,16 +45,31 @@ try {
  const stage=await el('stage').boundingBox();assert(coasted.x>=stage.x&&coasted.x+coasted.width<=stage.x+stage.width,'Glide escaped the field');
  console.log('PASS velocity handoff and bounded glide');
  await tap('mode-spring');await settled();await drag(60,70);await frames(2);
- const catching=center(await box());await touches('touchStart',[catching]);
- // Cross the platform's drag threshold to take the transform from its spring.
- await touches('touchMove',[{x:catching.x+6,y:catching.y}]);await frames();
- const held=await box();await frames(8);const later=await box();
+ const inFlight=await box();
+ assert(inFlight.x>initial.x+12,'Spring already settled before the catch test');
+ // Touch the visible right edge, outside the card's resting hit area. No move.
+ const catching={x:inFlight.x+inFlight.width-4,y:inFlight.y+inFlight.height/2};
+ await touches('touchStart',[catching]);await frames();
+ const held=await box();
+ assert(held.x>initial.x+8,'Touch-down did not catch the card before it reached home');
+ await frames(12);const later=await box();
  assert(Math.abs(later.x-held.x)+Math.abs(later.y-held.y)<2,'Spring keeps moving under a new finger');
  await touches('touchMove',[{x:catching.x+24,y:catching.y+20}]);await frames(2);
  const following=await box();assert(following.x>held.x+15,'Caught object did not follow new finger');
  await touches('touchEnd',[]);const home=await settled();
  assert(Math.abs(home.x-initial.x)<2&&Math.abs(home.y-initial.y)<2,'Spring did not return home');
- console.log('PASS catch an in-flight spring and drag again');
+ console.log('PASS stationary touch catches an in-flight spring, then drags and releases');
+ await drag(60,70);const touching=center(await box());
+ await touches('touchStart',[touching]);await frames();const paused=await box();await frames(12);
+ const still=await box();assert(Math.abs(still.x-paused.x)+Math.abs(still.y-paused.y)<2,'Stationary catch drifted');
+ await touches('touchEnd',[]);const tappedHome=await settled();
+ assert(Math.abs(tappedHome.x-initial.x)<2,'Lifting a stationary finger left the spring frozen');
+ assert.match(await el('selection').innerText(),/^Selected/,'Stationary catch lost tap selection');
+ await reset();await drag(60,70);await touches('touchStart',[center(await box())]);await frames();
+ await touches('touchCancel',[]);const cancelledHome=await settled();
+ assert(Math.abs(cancelledHome.x-initial.x)<2,'Cancelled stationary contact left the spring frozen');
+ assert(!((await el('selection').innerText()).startsWith('Selected')),'Cancelled contact selected the card');
+ console.log('PASS stationary release resumes the spring and selects; cancellation resumes without selection');
  await tap('mode-drag');await settled();await drag(28,24,'touchCancel');await settled();await reset();await drag(-25,-30);const afterCancel=await settled();
  assert(afterCancel.x<initial.x-20,'Cancellation left input stuck');
  console.log('PASS cancellation followed by a new gesture');

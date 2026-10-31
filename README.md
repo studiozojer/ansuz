@@ -2,7 +2,7 @@
 
 An Exact interaction playground for exploring how divination objects should feel in the hand. The opening screen is a quiet, flat field with one sample card. The voxel landscape is preserved in [stratum 001](strata/001-voxel-surfaces.爻) at commit `21f38cc`; [stratum 002](strata/002-interaction-playground.爻) records this change of direction.
 
-Drag moves the card and leaves it where released. Glide projects a bounded destination from release velocity and springs toward it. Spring returns to the center. Pinch resizes; tap toggles selection. Drag the card during a release animation to take control again. Recognition uses the host’s small movement threshold; a stationary contact alone does not promise to freeze a spring. Reset, resize buttons and directional controls remain outside the moving object. Reduced motion disables release animation and glide projection.
+Drag moves the card and leaves it where released. Glide projects a bounded destination from release velocity and springs toward it. Spring returns to the center. Pinch resizes; tap toggles selection. Touch the visible card during a release animation to catch it immediately where it is, even before moving your finger. Drag from that position to take control. Lifting without dragging resumes the spring and still counts as a selection tap; cancellation resumes it without selecting. Reset, resize buttons and directional controls remain outside the moving object. Reduced motion disables release animation and glide projection.
 
 Recognition, pinch anchoring and the held transform use Exact's native `transformDragFor` binding. Contract supplies the destination on release; there is no per-frame application pointer loop and no transition input lock. The current glide is a bounded spring projection, not a physical friction model. The sample is ephemeral and resets on relaunch. It is not an authored reading.
 
@@ -17,10 +17,11 @@ bun install --frozen-lockfile
 bun scripts/exact.mjs setup --check
 ```
 
-Install missing browser/Rust tooling reported by that check, then from `ansuz/`:
+Install missing browser/Rust tooling reported by that check, then apply the tracked SDK patches from the repository root before starting the browser preview:
 
 ```sh
-bun exact.mjs web
+bash scripts/patch-exact.sh
+bun ansuz/exact.mjs web
 ```
 
 Use its localhost URL in a WebGPU-capable browser. This is a standalone Exact app; Zhouyi is unchanged. Local iPhone builds are authorized for Ansuz; simulator checks still use EAS Simulator.
@@ -38,7 +39,7 @@ npm run build:ios:local
 
 To choose a particular phone, append `-- --phone "your phone name"`. If the right Bun version isn't on PATH, set `BUN=/path/to/bun` for the npm command. The underlying command is `bun ansuz/exact.mjs ios --device --run`: Exact builds, signs, installs, and launches the native app. It does not use `expo run:ios`, Metro, or Expo Go. This installs alongside Zhouyi, with separate local storage.
 
-Both local and EAS build commands first apply `tooling/patches/exact-xcode26.patch` to the pinned SDK. It fixes a Swift name collision and retains the existing audio-interruption handler supported by Xcode 26, removing references to iOS 27 APIs absent from that SDK. This deliberately leaves the SDK checkout modified; the gitlink remains pinned and the patch is tracked in Ansuz. The script accepts an already-applied patch and refuses a different SDK revision. Revisit these two fixes when upgrading Exact.
+Both local and EAS build commands first run `scripts/patch-exact.sh`. The tracked `exact-xcode26.patch` fixes a Swift name collision and removes unsupported iOS 27 audio APIs while retaining the existing interruption handler. `exact-contact-catch.patch` makes exclusive manipulation handles (`touch-action="none"`) hold their displayed transform on contact in iOS and web, while preserving tap/pan recognition. On iOS, transform targets are hit-tested at their animated position. These patches deliberately leave the SDK checkout modified; the gitlink remains pinned. The script accepts already-applied patches and refuses a different SDK revision. Revisit both patches when upgrading Exact.
 
 ## Install on iPhone with Expo EAS
 
@@ -83,7 +84,7 @@ bun ansuz/tools/check-interactions.mjs http://localhost:8768
 npm run check:delivery
 ```
 
-The browser walkthrough requires the current `ansuz/target/web-dist` served at that URL. It exercises real browser input; the authored suite tests selection, drag, pinch bounds, spring return, reduced motion and fallback controls. Exact's physical-phone agent can activate controls and inspect rendering, but cannot inject physical multi-touch; those calls do not prove finger feel. Verified on 2026-10-31: 12 retained Rust record/storage tests, five authored browser tests, five delivery tests, and the real Chromium walkthrough pass. The walkthrough covers finger drag versus tap, two-contact pinch and its focal point, bounded glide with release velocity, grabbing an in-flight spring, cancellation recovery, reduced motion, 320-point layout and mouse input. A local Xcode 26.5 build was installed on iPhone 16 Pro; inspected the native screenshot and activated selection, size, movement, mode and reset controls. Physical iPhone drag/pinch feel, VoiceOver and sustained performance remain unverified. This is a development build, not release-performance qualification.
+The browser walkthrough requires the current `ansuz/target/web-dist` served at that URL. It exercises real browser input; the authored suite tests selection, drag, pinch bounds, spring return, reduced motion and fallback controls. Exact's physical-phone agent can activate controls and inspect rendering, but cannot inject physical multi-touch; those calls do not prove finger feel. Verified on 2026-10-31: 12 retained Rust record/storage tests, five authored browser tests, five delivery tests, and the real Chromium walkthrough pass. The walkthrough covers finger drag versus tap, two-contact pinch and its focal point, bounded glide with release velocity, catching an in-flight spring with a stationary finger at its visible edge, resuming after stationary release/cancellation, cancellation recovery, reduced motion, 320-point layout and mouse input. A local Xcode 26.5 build was installed on iPhone 16 Pro; inspected the native screenshot and activated selection, size, movement, mode and reset controls. David reported that the playground feels good on the phone, but that the initial build could not catch a returning spring. The contact-catch fix builds and is installed; its physical iPhone gesture behavior still needs hands-on confirmation. VoiceOver and sustained performance remain unverified. This is a development build, not release-performance qualification.
 
 The fixed dark colors intentionally retain the requested visual direction and produce Exact's one-color-scheme warnings. Review the real screenshots; successful compilation alone is not a visual check.
 
@@ -91,4 +92,4 @@ The fixed dark colors intentionally retain the requested visual direction and pr
 
 Installed locally on 2026-10-31: [Expo animation](https://github.com/expo/skills/tree/main/plugins/expo/skills/expo-animation), [Expo native UI](https://github.com/expo/skills/tree/main/plugins/expo/skills/expo-native-ui), [Software Mansion React Native best practices](https://github.com/software-mansion-labs/skills/tree/main/skills/react-native-best-practices), and [Three.js interaction](https://github.com/CloudAI-X/threejs-skills/tree/main/skills/threejs-interaction). These are agent guidance, not application dependencies. Their interruption, gesture-ownership and device-verification principles inform this playground; React Native and Three.js code recipes do not run in Exact.
 
-SDK revision: `4e9000abbdaa8315ae864cdb8253af143aac510c`, with the tracked Xcode compatibility patch.
+SDK revision: `4e9000abbdaa8315ae864cdb8253af143aac510c`, with the tracked Xcode compatibility and contact-catch patches.
