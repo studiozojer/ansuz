@@ -1,0 +1,19 @@
+build:
+  name: Ansuz Exact iPhone preview
+  steps:
+    - eas/checkout
+    - sign_exact:
+        inputs:
+          credentials: ${ eas.job.secrets.buildCredentials }
+    - eas/upload_artifact:
+        inputs:
+          type: application-archive
+          path: exact-artifacts/Ansuz.ipa
+functions:
+  sign_exact:
+    name: Build and sign the native Exact app
+    path: ./sign-exact
+    inputs:
+      - name: credentials
+        type: json
+        required: true

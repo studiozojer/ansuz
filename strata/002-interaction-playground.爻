@@ -1,0 +1,19 @@
+---
+id: ansuz/strata/002-interaction-playground
+title: "Native interaction becomes the first experience"
+captured: 2026-10-31
+baseline: 21f38cc
+description: "The commit introducing this record replaces active voxel navigation with a small native manipulation playground."
+edges:
+  - target: ansuz/strata/001-voxel-surfaces
+    type: supersedes
+    note: "Preserves the voxel direction as recoverable compost."
+---
+
+David asked to install the recommended skills and make an Exact interaction playground the core first experience, explicitly allowing removal of the voxel scene. He then asked whether expocommons's strata model fits. The adopted interpretation is named, recoverable checkpoints for significant reorganizations; it does not impose historical layers as a content hierarchy or claim a runtime snapshot system.
+
+The playground uses Exact's native paired transform binding for drag and pinch. A sample object supports staying at release, a bounded glide, or springing home. Tapping selects it, and fixed controls let the person reset, resize, or move it without a gesture. The host owns recognition and the held transform; Contract chooses the release destination. Object identity remains independent of its position. This is an ephemeral interaction study, not a journal or a migration.
+
+The voxel rendering, assets and its scene-specific tests leave the active tree. The record model and local storage adapter remain as groundwork; the playground does not call the adapter. Installation uses the same app identity, so existing local notes remain in their existing file. Changing visual projection does not change provenance.
+
+Validation and remaining limits are reported in the repository README and PR. This record describes the transition, not a promise of verified physical gesture feel.

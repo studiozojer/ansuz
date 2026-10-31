@@ -1,0 +1,11 @@
+build:
+  name: Ansuz Exact iOS simulator
+  steps:
+    - eas/checkout
+    - run:
+        name: Build native Exact simulator app
+        command: bash scripts/build-exact-eas.sh simulator
+    - eas/upload_artifact:
+        inputs:
+          type: application-archive
+          path: exact-artifacts/Ansuz.app

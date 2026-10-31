@@ -1,5 +1,5 @@
-# Ansuz app
+# Ansuz playground
 
-The Rust world is in `logic/src/lib.rs`; the Contract interface is `app.contract`. See the [repository README](../README.md) for setup, face navigation, local note storage, and verification commands.
+The opening experience is native Contract UI in `app.contract`. Exact owns the drag/pinch transform and spring presentation. The sample is ephemeral; the old local-note file is untouched.
 
-This is an experimental voxel landscape with local notes on exposed faces. There is no backend connection yet.
+See the [repository README](../README.md) for building and testing, and [strata](../STRATA.爻) for the preserved voxel experiment. `logic/src/records.rs` and `data/` retain the independent record model and storage groundwork.

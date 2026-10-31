@@ -1,0 +1,13 @@
+---
+id: ansuz/strata/001-voxel-surfaces
+title: "Voxel surfaces — the first phone experience"
+captured: 2026-10-31
+commit: 21f38cc
+description: "The last voxel implementation before the interaction playground."
+---
+
+The app opens above a grayscale voxel sphere. Every exposed face can be selected to enter a perpendicular view; Landscape returns to the previous orbit. Notes have stable IDs and separate face placements, stored locally at `app:/data/surface-notes.json`. Exact supplies the Rust game renderer and Contract UI. This commit also contains the local iPhone build path and Xcode 26 compatibility patch.
+
+David reported that gestures frequently failed, and authorized removing the voxel experience in favor of strong interaction foundations. The prior device checks proved rendering and button-driven focus/editor transitions, not reliable physical touch. Inspection found that the app's contact action was bound only to MouseLeft even though Exact's touch contacts press no mouse buttons, and camera travel skipped navigation input for 0.9 seconds.
+
+Recover with `git show 21f38cc:ansuz/logic/src/lib.rs`, or create a separate checkout at that commit. Terrain art, generators, picking code, tests and the old walkthrough are all in that tree. Recovering the source does not recover device data; a device's journal lives separately from Git. The playground does not load, rewrite or delete that file.

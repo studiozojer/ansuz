@@ -1,0 +1,14 @@
+---
+id: ansuz/strata/index
+title: "Ansuz — strata"
+created: 2026-10-31
+---
+
+# Strata
+
+Named checkpoints at changes of direction. Git retains the implementation; these records explain what it meant and how to recover it. This adopts the method in `expocommons/graphs/practices/strata.爻`, not its domain data.
+
+| Stratum | Captured state | Meaning |
+|---|---|---|
+| [001 — voxel surfaces](strata/001-voxel-surfaces.爻) | `21f38cc` | Atmospheric voxel navigation, local face notes, first physical iPhone build. |
+| [002 — interaction playground](strata/002-interaction-playground.爻) | Commit introducing this record | Native manipulation becomes the entry experience. |

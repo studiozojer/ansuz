@@ -1,0 +1,21 @@
+{
+  "expo": {
+    "name": "Ansuz",
+    "slug": "ansuz",
+    "owner": "studiozojer",
+    "version": "0.1.0",
+    "platforms": [
+      "ios"
+    ],
+    "ios": {
+      "bundleIdentifier": "studio.zojer.ansuz",
+      "buildNumber": "1",
+      "appleTeamId": "497QWRKRQH"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "34fd751f-ac6b-407a-bc55-53e814766e98"
+      }
+    }
+  }
+}
