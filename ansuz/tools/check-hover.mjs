@@ -10,8 +10,12 @@ try {
  page.on('pageerror',e=>console.error('PAGE',e.message));
  await page.goto(process.argv[2] ?? 'http://127.0.0.1:8766');
  await page.locator('[data-testid="next"]').waitFor();
- await page.waitForTimeout(2500); if(await page.locator('[data-gpu-refusal]').count()) throw new Error(await page.locator('[data-gpu-refusal]').innerText());
+ await page.waitForFunction(() => {
+   const surface=document.querySelector('[data-gpu-input]');
+   return surface && globalThis.exact?.gpu?.wantsInput(Number(surface.dataset.view));
+ }, null, {timeout:60000});
  await page.locator('[data-testid="next"]').click();
+ await page.waitForFunction(() => document.querySelector('[data-testid="place"]')?.textContent === 'The Returning');
  await page.locator('[data-testid="descend"]').click();
  await page.waitForTimeout(3500);
  await page.mouse.move(20,180);
