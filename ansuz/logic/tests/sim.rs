@@ -38,9 +38,12 @@ fn fresh_world_is_empty_and_starts_in_atmospheric_view() {
     assert!(g.get::<Transform>("place-0").is_none());
     assert!(g.get::<Transform>("reading-0-0").is_none());
     let camera = camera_pose(&j);
-    assert_eq!(camera.position, Vec3::new(0., 0., 120. + ORBIT_HEIGHT));
+    assert_eq!(
+        camera.position,
+        ansuz_logic::normal(0., 1.05) * (120. + ORBIT_HEIGHT)
+    );
     assert!(!j.surface);
-    assert!((camera.rotation * -Vec3::Z).y > 0.5);
+    assert!((camera.rotation * -Vec3::Z).y < -0.2);
 }
 #[test]
 fn quick_click_selects_a_real_top_without_creating_an_object() {
@@ -138,4 +141,61 @@ fn atmospheric_drag_coasts_and_a_new_contact_catches_it() {
     let caught = g.world().resource::<Journey>().longitude;
     g.run(100.);
     assert_eq!(g.world().resource::<Journey>().longitude, caught);
+}
+
+#[test]
+fn selected_surface_opens_one_turnable_tablet_without_creating_content() {
+    use ansuz_logic::{
+        pick,
+        tablet::{hit, TabletView},
+    };
+    use exact_game::{PointLight, Vec2};
+    let mut g = surface_game();
+    assert!(!g.get::<Visible>("tablet").unwrap().0);
+    let before = *g.get::<Transform>("camera").unwrap();
+    g.tap("Enter");
+    g.run(600.);
+    let j = *g.world().resource::<Journey>();
+    let cell = j.selected.unwrap();
+    assert!(g.get::<Visible>("tablet").unwrap().0);
+    assert_eq!(g.world().resource::<TabletView>().cell, Some(cell));
+    let tablet = *g.get::<Transform>("tablet").unwrap();
+    assert!(tablet.position.y > cell.center().y + 3.);
+    assert_eq!(*g.get::<Transform>("camera").unwrap(), before);
+    assert!(g.world().resource::<Dataset>().objects.is_empty());
+    // A click on the risen object keeps its owning surface, even though the ray
+    // would land on a neighbouring terrain cell behind the tilted tablet.
+    let ray = (tablet.position - before.position).normalize();
+    assert!(hit(g.world(), before.position, ray).is_some());
+    let local = before.rotation.inverse() * (tablet.position - before.position);
+    let clip = exact_game::Camera::default()
+        .matrix(Vec2::new(800., 600.))
+        .project_point3(local);
+    let screen = Vec2::new((clip.x + 1.) * 400., (1. - clip.y) * 300.);
+    assert_eq!(
+        pick(g.world(), screen, Vec2::new(800., 600.), &j),
+        Some(cell)
+    );
+    g.tap("KeyE");
+    g.run(40.);
+    assert_ne!(
+        g.get::<Transform>("tablet").unwrap().rotation,
+        tablet.rotation
+    );
+    assert_eq!(g.world().resource::<TabletView>().cell, Some(cell));
+    g.tap("Escape");
+    g.run(40.);
+    assert!(!g.get::<Visible>("tablet").unwrap().0);
+    assert_eq!(g.get::<PointLight>("tablet-light").unwrap().intensity, 0.);
+    assert!(g.world().resource::<Dataset>().objects.is_empty());
+}
+
+#[test]
+fn atmospheric_start_exposes_selectable_tops() {
+    let mut g = game();
+    g.tap("Enter");
+    g.run(600.);
+    assert!(g.world().resource::<Journey>().selected.is_some());
+    assert!(g.get::<Visible>("tablet").unwrap().0);
+    assert!(g.world().resource::<Dataset>().objects.is_empty());
 }

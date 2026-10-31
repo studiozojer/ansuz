@@ -16,6 +16,9 @@ import {resolve} from 'node:path';
 import {readFileSync} from 'node:fs';
 import { proof, axNames, completedWorldFrame, worldPixels } from "../tooling/exact2/game/proof.mjs";
 
+// Exact's Option<T> is encoded as [] or [value].
+const hasValue = value => Array.isArray(value) && value.length === 1;
+
 // How a fresh session reaches the running world: change it with the title screen.
 const play = async session => {
   await session.clock('data');
@@ -72,7 +75,7 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   const scene = await play(journey);
   await scene.run(100);
   const start = await scene.local_position('camera');
-  check('camera starts in the atmospheric landscape', Math.abs(start[0]) < 0.001 && Math.abs(start[1]) < 0.001 && Math.abs(start[2]-152) < 0.001,start);
+  check('camera starts in the atmospheric landscape', Math.abs(start[0]) < 0.001 && Math.abs(start[1]-Math.sin(1.05)*152) < 0.001 && Math.abs(start[2]-Math.cos(1.05)*152) < 0.001,start);
   await journey.tap('descend');
   await scene.run(1000);
   const top = await scene.local_position('camera');
@@ -80,19 +83,31 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   const records = (await scene.resources()).Dataset;
   check('fresh surface has no seeded objects', records.objects.length === 0);
   await journey.tap('select-center');
-  await scene.run(100);
-  check('centre selection resolves an actual terrain face', (await scene.resources()).Journey.selected != null);
+  await scene.run(600);
+  check('centre selection resolves an actual terrain face', hasValue((await scene.resources()).Journey.selected));
   check('selection leaves records empty', (await scene.resources()).Dataset.objects.length === 0);
   check('selection leaves camera still', JSON.stringify(await scene.local_position('camera')) === JSON.stringify(top));
+  check('selection reveals the clay tablet', (await scene.resources()).TabletView.reveal === 1);
   await journey.screenshot(resolve(out, 'surface-selected.png'));
+  const selectedCell = (await scene.resources()).TabletView.cell;
+  await journey.tap('tablet-right');
+  await scene.run(100);
+  check('tablet can turn without changing its surface', (await scene.resources()).TabletView.turn > 0 && JSON.stringify((await scene.resources()).TabletView.cell) === JSON.stringify(selectedCell));
+  await journey.screenshot(resolve(out, 'tablet-turned.png'));
   await journey.tap('add-note');
   await scene.run(100);
   await journey.screenshot(resolve(out, 'surface-editor.png'));
   await journey.tap('cancel');
   await journey.tap('deselect');
+  await scene.run(100);
+  check('closing the tablet clears only its presentation', !hasValue((await scene.resources()).TabletView.cell) && (await scene.resources()).Dataset.objects.length === 0);
   await journey.tap('ascend');
   await scene.run(1000);
   check('ascent returns to the atmospheric viewpoint', JSON.stringify(await scene.local_position('camera')) === JSON.stringify(start));
+  await journey.tap('select-center');
+  await scene.run(600);
+  check('atmospheric selection also opens a tablet', hasValue((await scene.resources()).TabletView.cell));
+  await journey.screenshot(resolve(out, 'tablet-atmosphere.png'));
   await journey.resize(390, 844);
   await journey.screenshot(resolve(out, 'portrait.png'));
   await journey.close();

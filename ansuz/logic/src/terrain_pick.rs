@@ -63,6 +63,11 @@ pub fn setup(w: &mut World) {
 /// Closest actual terrain triangle wins. A side or underside blocks any top
 /// farther along the ray. Only upward faces approached from above are eligible.
 pub fn pick(w: &World, origin: Vec3, direction: Vec3) -> Option<Cell> {
+    hit(w, origin, direction).and_then(|(_, cell)| cell)
+}
+
+/// Distance includes blocking side/underside triangles, whose cell is None.
+pub fn hit(w: &World, origin: Vec3, direction: Vec3) -> Option<(f32, Option<Cell>)> {
     if !origin.is_finite() || !direction.is_finite() || direction.length_squared() < 1e-12 {
         return None;
     }
@@ -83,9 +88,9 @@ pub fn pick(w: &World, origin: Vec3, direction: Vec3) -> Option<Cell> {
         if needs_rebuild {
             *w.resource_mut::<TerrainPickCache>() = TerrainPickCache::build(model, revision);
         }
-        w.resource::<TerrainPickCache>().cast(origin, direction)
+        w.resource::<TerrainPickCache>().hit(origin, direction)
     } else {
-        TerrainPickCache::build(model, revision).cast(origin, direction)
+        TerrainPickCache::build(model, revision).hit(origin, direction)
     }
 }
 
@@ -206,7 +211,12 @@ impl TerrainPickCache {
         index
     }
 
+    #[cfg(test)]
     fn cast(&self, origin: Vec3, direction: Vec3) -> Option<Cell> {
+        self.hit(origin, direction).and_then(|(_, cell)| cell)
+    }
+
+    fn hit(&self, origin: Vec3, direction: Vec3) -> Option<(f32, Option<Cell>)> {
         if self.branches.is_empty() {
             return None;
         }
@@ -254,7 +264,7 @@ impl TerrainPickCache {
         }
         let triangle = &self.triangles[hit?];
         if !triangle.top || direction.y >= 0. {
-            return None;
+            return Some((nearest, None));
         }
         let point = origin + direction * nearest;
         // A greedy quad may span dozens of cells. Use its hit position, then
@@ -264,11 +274,14 @@ impl TerrainPickCache {
             let upper = (max / CELL).round() as i32 - 1;
             ((value / CELL + 0.00001).floor() as i32).clamp(lower, upper.max(lower))
         };
-        Some(Cell {
-            x: coordinate(point.x, triangle.min.x, triangle.max.x),
-            y: (triangle.a.y / CELL).round() as i32 - 1,
-            z: coordinate(point.z, triangle.min.z, triangle.max.z),
-        })
+        Some((
+            nearest,
+            Some(Cell {
+                x: coordinate(point.x, triangle.min.x, triangle.max.x),
+                y: (triangle.a.y / CELL).round() as i32 - 1,
+                z: coordinate(point.z, triangle.min.z, triangle.max.z),
+            }),
+        ))
     }
 }
 

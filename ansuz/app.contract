@@ -83,6 +83,12 @@ component Ansuz
                 text (hud.occupied ? hud.title : "Empty surface") font="-exact-headline" testId="face-title"
                 if hud.occupied
                   text hud.body font="-exact-subheadline" max-height=120 overflow="auto" testId="face-body"
+                row gap=8 align-items="center"
+                  text "Clay tablet" font="-exact-caption1" color="#b3b3b3"
+                  button action="turn-left" testId="tablet-left" aria-label="Turn tablet left" padding=10 background-color="#252525" border-radius=8
+                    text "↶"
+                  button action="turn-right" testId="tablet-right" aria-label="Turn tablet right" padding=10 background-color="#252525" border-radius=8
+                    text "↷"
                 row gap=12 justify-content="flex-end"
                   button action="clear" testId="deselect" padding=10
                     text "Close"

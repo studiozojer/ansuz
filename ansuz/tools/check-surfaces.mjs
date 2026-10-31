@@ -11,6 +11,9 @@ try {
  const ready=()=>page.waitForFunction(()=>{const el=document.querySelector('[data-gpu-input]');return el&&globalThis.exact?.gpu?.wantsInput(Number(el.dataset.view));},null,{timeout:60000});
  const textIs=(id,text)=>page.waitForFunction(({id,text})=>document.querySelector(`[data-testid="${id}"]`)?.textContent===text,{id,text});
  await page.goto(process.argv[2]??'http://127.0.0.1:8766');await ready();const atmosphere=await page.screenshot({path:resolve(out,'atmosphere.png')});
+ await page.locator('[data-testid="select-center"]').click();await textIs('face-title','Empty surface');
+ await page.waitForTimeout(550);await page.screenshot({path:resolve(out,'tablet-atmosphere.png')});
+ await page.locator('[data-testid="deselect"]').click();
  await page.mouse.move(640,350);await page.mouse.down();await page.mouse.move(820,420,{steps:12});await page.mouse.up();await page.waitForTimeout(250);
  const rotated=await page.screenshot({path:resolve(out,'rotated.png')});
  if(atmosphere.equals(rotated))throw new Error('Atmospheric drag did not move the scene');
@@ -21,6 +24,11 @@ try {
  await page.mouse.move(650,330);await page.waitForTimeout(150);
  await page.screenshot({path:resolve(out,'hover.png')});
  await page.mouse.click(650,330);await textIs('face-title','Empty surface');
+ await page.waitForTimeout(550);
+ const tablet=await page.screenshot({path:resolve(out,'tablet.png')});
+ await page.locator('[data-testid="tablet-right"]').click();await page.waitForTimeout(100);
+ const turned=await page.screenshot({path:resolve(out,'tablet-turned.png')});
+ if(tablet.equals(turned))throw new Error('Turning the tablet did not change its rendering');
  await page.locator('[data-testid="add-note"]').click();
  await page.locator('[data-testid="note-title"]').fill('A surface question');
  await page.locator('[data-testid="note-body"]').fill('What grows here?');
@@ -31,6 +39,7 @@ try {
  await page.locator('[data-testid="add-note"]').click();
  await page.locator('[data-testid="note-title"]').fill('The same root, edited');
  await page.locator('[data-testid="save"]').click();await textIs('face-title','The same root, edited');
+ await page.locator('[data-testid="deselect"]').click();
  await page.mouse.click(740,330);await textIs('face-title','Empty surface');
  await page.locator('[data-testid="add-note"]').click();
  await page.locator('[data-testid="note-body"]').fill('A neighbouring thought');
@@ -41,5 +50,5 @@ try {
  await page.locator('[data-testid="descend"]').click();await page.waitForTimeout(1100);
  await page.setViewportSize({width:390,height:844});await page.screenshot({path:resolve(out,'portrait.png')});
  if(errors.length)throw new Error(errors.join('\n'));
- console.log('PASS actual face selection, local create/edit/reload, distinct neighbouring face, body-only note, portrait');
+ console.log('PASS tablet rendering/turn, actual face selection, local create/edit/reload, distinct neighbouring face, body-only note, portrait');
 } catch(error) {throw error;} finally {await browser.close();}

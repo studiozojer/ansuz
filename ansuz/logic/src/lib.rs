@@ -1,5 +1,6 @@
 use exact_game::*;
 pub mod records;
+pub mod tablet;
 pub mod terrain_pick;
 use records::{Dataset, Object, Relation};
 use terrain_pick::Cell;
@@ -35,7 +36,7 @@ impl Default for Journey {
     fn default() -> Self {
         Self {
             longitude: 0.,
-            latitude: 0.,
+            latitude: 1.05,
             surface: false,
             blend: 0.,
             quiet: 0.,
@@ -175,7 +176,13 @@ pub fn pick(w: &World, point: Vec2, size: Vec2, j: &Journey) -> Option<Cell> {
             .inverse()
             .project_point3(ndc)
             .normalize();
-    terrain_pick::pick(w, pose.position, ray)
+    let terrain = terrain_pick::hit(w, pose.position, ray);
+    if let Some(distance) = tablet::hit(w, pose.position, ray) {
+        if terrain.is_none_or(|(blocking, _)| distance < blocking) {
+            return j.selected;
+        }
+    }
+    terrain.and_then(|(_, cell)| cell)
 }
 fn face_pose(cell: Cell, lift: f32) -> Transform {
     let p = cell.center() + Vec3::Y * lift;
@@ -211,6 +218,7 @@ fn sync_records(w: &mut World, json: &str) {
     };
 }
 fn draw(w: &mut World, j: &Journey) {
+    tablet::draw(w, j);
     for (name, cell, lift) in [
         ("hover-face", j.hovered, 0.015),
         ("selected-face", j.selected, 0.023),
@@ -246,7 +254,7 @@ pub struct Ansuz;
 impl Game for Ansuz {
     const ID: &'static str = "ansuz";
     const HZ: u32 = 120;
-    const ASSETS: &'static [&'static str] = &["terrain.model"];
+    const ASSETS: &'static [&'static str] = &["terrain.model", "tablet.model"];
     type Args = Options;
     fn actions() -> Actions {
         Actions::new()
@@ -256,6 +264,8 @@ impl Game for Ansuz {
             .button("descend", &["KeyF"])
             .button("ascend", &["KeyR"])
             .button("clear", &["Escape"])
+            .button("turn-left", &["KeyQ"])
+            .button("turn-right", &["KeyE"])
             .button("select-center", &["Enter"])
             .button("closer", &["Equal"])
             .button("farther", &["Minus"])
@@ -295,6 +305,7 @@ impl Game for Ansuz {
             );
         }
         terrain_pick::setup(w);
+        tablet::setup(w);
         sync_records(w, &args.records);
         draw(w, &Journey::default());
     }
@@ -315,6 +326,16 @@ impl Game for Ansuz {
         let down = pointer.is_some_and(|p| p.down);
         if input.pressed("recenter") {
             j = Journey::default();
+        }
+        if j.selected.is_some() {
+            let turn = if input.pressed("turn-left") {
+                -0.35
+            } else if input.pressed("turn-right") {
+                0.35
+            } else {
+                0.
+            };
+            w.resource_mut::<tablet::TabletView>().turn += turn;
         }
         if input.pressed("clear") {
             j.selected = None;
