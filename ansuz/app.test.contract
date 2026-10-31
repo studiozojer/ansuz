@@ -1,26 +1,54 @@
-test "add a note directly to a terrain face and keep it after relaunch"
+test "tap selects and reset clears the sample"
   clock data
-  tap "select-center"
-  clock +1100
-  expect text "face-title" == "Empty surface"
-  tap "add-note"
-  type "note-title" "A first question"
-  type "note-body" "What wants attention here?"
-  tap "save"
+  tap "handle"
+  expect state selected == true
+  tap "handle"
+  expect state selected == false
+  tap "zoom-in"
+  expect text "zoom" == "115%"
+  tap "reset"
+  clock settle
+  expect text "zoom" == "100%"
+  expect state x == 0
+  expect state y == 0
+
+test "a finger drag does not also select the object"
   clock data
-  clock +100
-  expect text "face-title" == "A first question"
-  reload
+  tap "handle" drag 40 45 over 300 hold 100
+  clock settle
+  expect state selected == false
+
+test "pinch changes size and clamps the released size"
   clock data
-  tap "select-center"
-  clock +1100
+  tap "handle" pinch 1.3
+  clock settle
+  expect text "zoom" == "130%"
+  tap "handle" pinch 3
+  clock settle
+  expect state zoom == 1.6
+  tap "reset"
+  clock settle
+  expect state zoom == 1
+
+test "spring returns to the origin without selecting"
   clock data
-  clock +100
-  expect text "face-title" == "A first question"
-  expect text "face-body" == "What wants attention here?"
-  tap "add-note"
-  type "note-title" "An edited question"
-  tap "save"
+  tap "mode-spring"
+  clock settle
+  tap "handle" drag 55 60 over 250
+  clock settle
+  expect state x == 0
+  expect state y == 0
+  expect state selected == false
+
+test "reduced motion and gesture-free controls"
+  prefer prefers-reduced-motion reduce
   clock data
-  clock +100
-  expect text "face-title" == "An edited question"
+  tap "mode-glide"
+  tap "right"
+  expect state x == 24
+  tap "down"
+  expect state y == 24
+  expect text "motion-preference" == "Reduced motion · no glide or spring animation"
+  tap "reset"
+  expect state x == 0
+  expect state y == 0

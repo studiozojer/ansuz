@@ -1,0 +1,76 @@
+// Real Chromium input, independent of Exact's recognized-action agent path.
+import assert from 'node:assert/strict';
+import {mkdirSync} from 'node:fs';
+import {resolve} from 'node:path';
+import {chromium} from '../../tooling/exact2/node_modules/playwright-core/index.mjs';
+const out=resolve(import.meta.dir,'../artifacts/playground');
+mkdirSync(out,{recursive:true});
+const browser=await chromium.launch({headless:true,executablePath:chromium.executablePath(),args:['--no-sandbox','--use-mock-keychain','--password-store=basic']});
+const url=process.argv[2]??'http://127.0.0.1:8768';
+try {
+ const page=await browser.newPage({viewport:{width:390,height:844},isMobile:true,hasTouch:true});
+ const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ const el=id=>page.getByTestId(id);
+ const frames=async(n=2)=>page.evaluate(n=>new Promise(resolve=>{const next=()=>--n<=0?resolve():requestAnimationFrame(next);requestAnimationFrame(next);}),n);
+ const box=async()=>{const b=await el('sample').boundingBox();assert(b);return b;};
+ const center=b=>({x:b.x+b.width/2,y:b.y+b.height/2});
+ const settled=async()=>{let last=await box(),still=0;for(let i=0;i<180;i++){await frames();const b=await box();if(Math.abs(b.x-last.x)+Math.abs(b.y-last.y)+Math.abs(b.width-last.width)<0.08)still++;else still=0;if(still>=5)return b;last=b;}throw new Error('Object never settled');};
+ const cdp=await page.context().newCDPSession(page);
+ const touches=(type,points)=>cdp.send('Input.dispatchTouchEvent',{type,touchPoints:points.map((p,i)=>({x:p.x,y:p.y,id:i+1,radiusX:2,radiusY:2,force:1}))});
+ const tap=async id=>{await el(id).tap();await frames();};
+ const reset=async()=>{await tap('reset');return settled();};
+ const drag=async(dx,dy,end='touchEnd')=>{const p=center(await box());await touches('touchStart',[p]);await frames();for(let i=1;i<=12;i++){await touches('touchMove',[{x:p.x+dx*i/12,y:p.y+dy*i/12}]);await frames();}await touches(end,[]);await frames();};
+ await page.goto(url);await el('handle').waitFor();await frames(4);
+ await page.screenshot({path:resolve(out,'phone-start.png')});
+ const initial=await box();
+ await el('handle').tap();await frames();assert.match(await el('selection').innerText(),/^Selected/);
+ await reset();
+ await drag(42,48);const moved=await settled();
+ // Exact recognizes after four points of slop and anchors there; allow one input step.
+ assert(Math.abs(moved.x-initial.x-42)<8,'Finger horizontal travel lost');
+ assert(Math.abs(moved.y-initial.y-48)<8,'Finger vertical travel lost');
+ assert(!((await el('selection').innerText()).startsWith('Selected')),'Drag also selected');
+ console.log('PASS real finger drag and tap arbitration');
+ await reset();const focal=center(await box());
+ await touches('touchStart',[{x:focal.x-30,y:focal.y},{x:focal.x+30,y:focal.y}]);await frames();
+ for(let i=1;i<=12;i++){const d=30+i;await touches('touchMove',[{x:focal.x-d,y:focal.y},{x:focal.x+d,y:focal.y}]);await frames();}
+ await touches('touchEnd',[]);const resized=await settled();
+ assert(resized.width>initial.width*1.25,'Pinch did not resize');
+ assert(Math.abs(center(resized).x-focal.x)<3&&Math.abs(center(resized).y-focal.y)<3,'Pinch lost its focal point');
+ console.log('PASS two-contact pinch and focal anchor');
+ await tap('mode-glide');await settled();const flick=center(await box());
+ await touches('touchStart',[flick]);await frames();
+ for(let i=1;i<=4;i++){await touches('touchMove',[{x:flick.x+i*8,y:flick.y+i*4}]);await frames();}
+ const atRelease=await box();await touches('touchEnd',[]);const coasted=await settled();
+ assert(coasted.x>atRelease.x+4,'Glide did not carry release velocity');
+ const stage=await el('stage').boundingBox();assert(coasted.x>=stage.x&&coasted.x+coasted.width<=stage.x+stage.width,'Glide escaped the field');
+ console.log('PASS velocity handoff and bounded glide');
+ await tap('mode-spring');await settled();await drag(60,70);await frames(2);
+ const catching=center(await box());await touches('touchStart',[catching]);
+ // Cross the platform's drag threshold to take the transform from its spring.
+ await touches('touchMove',[{x:catching.x+6,y:catching.y}]);await frames();
+ const held=await box();await frames(8);const later=await box();
+ assert(Math.abs(later.x-held.x)+Math.abs(later.y-held.y)<2,'Spring keeps moving under a new finger');
+ await touches('touchMove',[{x:catching.x+24,y:catching.y+20}]);await frames(2);
+ const following=await box();assert(following.x>held.x+15,'Caught object did not follow new finger');
+ await touches('touchEnd',[]);const home=await settled();
+ assert(Math.abs(home.x-initial.x)<2&&Math.abs(home.y-initial.y)<2,'Spring did not return home');
+ console.log('PASS catch an in-flight spring and drag again');
+ await tap('mode-drag');await settled();await drag(28,24,'touchCancel');await settled();await reset();await drag(-25,-30);const afterCancel=await settled();
+ assert(afterCancel.x<initial.x-20,'Cancellation left input stuck');
+ console.log('PASS cancellation followed by a new gesture');
+ await page.emulateMedia({reducedMotion:'reduce'});await tap('mode-glide');await reset();await drag(30,30);const reduced=await settled();
+ assert(reduced.x>initial.x+20,'Reduced motion disabled dragging');
+ assert.match(await el('motion-preference').innerText(),/Reduced motion/);
+ console.log('PASS reduced motion keeps direct manipulation');
+ await page.emulateMedia({reducedMotion:'no-preference'});await reset();
+ await page.setViewportSize({width:320,height:640});await settled();await page.screenshot({path:resolve(out,'small-phone.png')});
+ const controls=['reset','mode-drag','mode-glide','mode-spring','zoom-in','zoom-out','left','right','up','down'];
+ for(const id of controls){const b=await el(id).boundingBox();assert(b&&b.x>=0&&b.x+b.width<=320.5,`${id} outside narrow screen`);assert(b.height>=44,`${id} touch target too short`);}
+ await page.setViewportSize({width:1100,height:760});await tap('mode-drag');await reset();
+ const mouseStart=await box(),p=center(mouseStart);await page.mouse.move(p.x,p.y);await page.mouse.down();await page.mouse.move(p.x+90,p.y+50,{steps:12});await page.mouse.up();const mouseEnd=await settled();
+ assert(mouseEnd.x>mouseStart.x+80,'Mouse drag failed');
+ await page.screenshot({path:resolve(out,'desktop.png')});
+ assert.deepEqual(errors,[]);
+ console.log('PASS narrow layout, 44-point controls, desktop mouse, no runtime exceptions');
+} finally {await browser.close();}
