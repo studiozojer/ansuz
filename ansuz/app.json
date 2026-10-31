@@ -4,6 +4,11 @@
     "name": "Ansuz"
   },
   "game": {
-    "assets": true
+    "assets": true,
+    "look": {
+      "silence": [
+        "near-black"
+      ]
+    }
   }
 }

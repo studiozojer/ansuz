@@ -36,7 +36,7 @@ fn selection_descent_and_return_preserve_geography() {
 
 #[test]
 fn reduced_motion_arrives_without_a_long_transition() {
-    let mut game = Sim::<Ansuz>::new(Options {
+    let mut game: Sim<Ansuz> = exact_game::sim_with_art!(Options {
         reduced: true,
         ..Options::default()
     })

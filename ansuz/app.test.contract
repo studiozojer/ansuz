@@ -5,7 +5,7 @@ test "choose a place, descend and return"
   expect text "place" == "The Returning"
   tap "descend"
   clock +2500
-  expect text "level" == "IN THE CLEARING"
+  expect text "level" == "IN THE REGION"
   tap "ascend"
   clock +2500
-  expect text "level" == "ABOVE THE LAND"
+  expect text "level" == "SURFACE ATLAS"

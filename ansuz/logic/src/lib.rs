@@ -1,14 +1,14 @@
 use exact_game::*;
 
 pub const RADIUS: f32 = 120.0;
-pub const HIGH: f32 = 25.0;
-pub const LOW: f32 = 6.5;
+pub const HIGH: f32 = 32.0;
+pub const LOW: f32 = 14.0;
 pub const PLACES: [(&str, f32, f32, &str); 5] = [
-    ("The Returning", -0.06, 0.24, "#e6c38b"),
-    ("Ember Grove", 0.20, 0.36, "#d99573"),
-    ("Stillwater", -0.29, 0.43, "#9cc9c6"),
-    ("The Unwritten", 0.40, 0.65, "#c2b6d9"),
-    ("Open Questions", -0.48, 0.16, "#b5c795"),
+    ("The Returning", -0.06, 0.24, "#bcbcbc"),
+    ("Ember Grove", 0.20, 0.36, "#bcbcbc"),
+    ("Stillwater", -0.29, 0.43, "#bcbcbc"),
+    ("The Unwritten", 0.40, 0.65, "#bcbcbc"),
+    ("Open Questions", -0.48, 0.16, "#bcbcbc"),
 ];
 
 #[derive(Default, Args)]
@@ -124,9 +124,9 @@ fn pick_place(point: Vec2, size: Vec2, j: &Journey) -> i32 {
     let inverse = Camera::default().matrix(size).inverse();
     let ndc = Vec3::new(point.x / size.x * 2. - 1., 1. - point.y / size.y * 2., 1.);
     let ray = pose.rotation * inverse.project_point3(ndc).normalize();
-    // Ray against the actual spherical surface. The near intersection excludes the far side.
+    // Regional selection envelope; voxel-cell picking is not needed for these cluster targets.
     let b = pose.position.dot(ray);
-    let c = pose.position.length_squared() - (RADIUS + 0.8) * (RADIUS + 0.8);
+    let c = pose.position.length_squared() - (RADIUS + 5.0) * (RADIUS + 5.0);
     let discriminant = b * b - c;
     if discriminant < 0. {
         return -1;
@@ -152,6 +152,7 @@ pub struct Ansuz;
 impl Game for Ansuz {
     const ID: &'static str = "ansuz";
     const HZ: u32 = 120;
+    const ASSETS: &'static [&'static str] = &["terrain.model", "pixel.tex"];
     type Args = Options;
     fn actions() -> Actions {
         Actions::new()
@@ -169,89 +170,86 @@ impl Game for Ansuz {
         };
         w.insert_resource(j);
         w.insert_resource(Environment {
-            zenith: [0.012, 0.028, 0.045],
-            horizon: [0.21, 0.34, 0.34],
-            ground: [0.035, 0.07, 0.065],
-            ambient: 0.85,
+            background: Some(Color::hex("#080808")),
+            zenith: [0.15; 3],
+            horizon: [0.15; 3],
+            ground: [0.08; 3],
+            ambient: 0.8,
             sun_disc: 0.,
-            fog: Some(Fog {
-                color: Some(Color::hex("#708f90")),
-                ..Fog::new(0.0004, 0.)
-            }),
+            fog: None,
+            bloom: None,
             ..Environment::default()
         });
         w.spawn_named(
-            "ocean",
-            (
-                Transform::default(),
-                Mesh::asset("ocean.model"),
-                Material::hex("#23494b"),
-            ),
+            "terrain",
+            (Transform::default(), Mesh::asset("terrain.model")),
         );
         w.spawn_named("camera", (camera_pose(&j), Camera::default()));
-        w.spawn_named(
-            "sun",
-            (
-                Transform::at(-110., 180., 190.).looking_at(Vec3::ZERO, Vec3::Y),
-                DirectionalLight::default(),
-            ),
-        );
-        // Fixed archipelagos. Sample clusters have recognizable shapes and never drift.
+        // The volume is baked to exposed, merged faces. Readings remain independent entities.
         for (i, (_, x, y, color)) in PLACES.iter().enumerate() {
-            for k in 0..5 {
-                let a = k as f32 * 1.8 + i as f32;
-                let lon = x + math::sin(a) * 0.035;
-                let lat = y + math::cos(a) * 0.025;
-                w.spawn((
-                    surface(lon, lat, -1.9).with_scale([9. + k as f32 * 0.7, 3.5, 7.5]),
-                    Mesh::sphere(1.),
-                    Material::hex(if i % 2 == 0 { "#6f8670" } else { "#8a8c70" }),
-                ));
-            }
             w.spawn_named(
                 format!("place-{i}"),
                 (
-                    surface(*x, *y, 2.1),
-                    Mesh::cylinder(1.05, 0.3),
-                    Material::hex(color).emissive(0.12, 0.10, 0.06),
+                    surface(*x, *y, 6.0),
+                    Mesh::cube(1.0),
+                    Material::hex(color).emissive(0.3, 0.3, 0.3),
                     Marker { place: i as u32 },
                 ),
             );
             w.spawn_named(
                 format!("halo-{i}"),
                 (
-                    surface(*x, *y, 2.3),
-                    Mesh::ring(1.8, 1.95),
-                    Material::hex(color),
+                    surface(*x, *y, 5.25),
+                    Mesh::cuboid(Vec3::new(2.4, 0.06, 2.4)),
+                    Material::hex("#555555").emissive(0.05, 0.05, 0.05),
                 ),
             );
             for k in 0..9 {
-                let a = k as f32 * 2.4;
-                let r = 0.018 + (k / 3) as f32 * 0.012;
-                let lon = x + math::cos(a) * r;
-                let lat = y + math::sin(a) * r;
+                let lon = x + ((k % 3) as f32 - 1.) * 0.028;
+                let lat = y + ((k / 3) as f32 - 1.) * 0.028;
                 w.spawn_named(
                     format!("reading-{i}-{k}"),
                     (
-                        surface(lon, lat, 1.8),
-                        Mesh::cuboid(Vec3::new(0.95, 0.2 + (k % 3) as f32 * 0.12, 1.2)),
-                        Material::hex(color),
+                        surface(lon, lat, 5.6),
+                        Mesh::cuboid(Vec3::new(0.8, 0.5, 0.8)),
+                        Material::hex("#888888").emissive(0.1, 0.1, 0.1),
                         Marker { place: i as u32 },
                     ),
                 );
-                // Small cairns suggest an inhabited landscape without prescribing villages.
-                if k % 3 == 0 {
-                    w.spawn((
-                        surface(lon + 0.008, lat, 1.8),
-                        Mesh::cone(0.45, 1.6),
-                        Material::hex("#3f6356"),
-                    ));
-                }
             }
+            w.spawn_named(
+                format!("motes-{i}"),
+                (
+                    surface(*x, *y, 7.),
+                    Ambient,
+                    ParticleLook {
+                        texture: "pixel.tex".into(),
+                        ..ParticleLook::default()
+                    },
+                    Emitter {
+                        shape: exact_game::emitter::Shape::Sphere(4.),
+                        rate: 3.,
+                        lifetime: 5.,
+                        speed: 0.15,
+                        spread: 0.4,
+                        gravity: Vec3::new(0., 0.04, 0.),
+                        drag: 0.2,
+                        size: [0.10, 0.06],
+                        color: [[0.5, 0.5, 0.5, 0.8], [0.5, 0.5, 0.5, 0.]],
+                        additive: false,
+                        bound: [-5., -5., -5., 5., 7., 5.],
+                        seed: i as u64 + 1,
+                        ..Emitter::default()
+                    },
+                ),
+            );
         }
         publish(w, &j);
     }
     fn tick(w: &mut World, input: &Input, args: &Options) {
+        for i in 0..PLACES.len() {
+            w.require_mut::<Emitter>(format!("motes-{i}")).running = !args.reduced;
+        }
         let dt = w.dt();
         let mut j = *w.resource::<Journey>();
         let pointer = input.pointer();
@@ -376,7 +374,7 @@ fn publish(w: &World, j: &Journey) {
     } else if j.selected >= 0 {
         "9 sample readings · a place to explore"
     } else {
-        "Glide across the surface. Touch a clearing to choose a place."
+        "Glide across the surface. Touch a region to choose a place."
     };
     w.publish_record(&Hud {
         title: title.into(),

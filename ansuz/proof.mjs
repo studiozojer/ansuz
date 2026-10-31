@@ -72,7 +72,7 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   await journey.tap('descend');
   await scene.run(3000);
   const low = await scene.local_position('camera');
-  check('descent reaches the surface', Math.abs(Math.hypot(...low) - 126.5) < 0.01, low);
+  check('descent reaches the surface', Math.abs(Math.hypot(...low) - 134.0) < 0.01, low);
   await journey.screenshot(resolve(out, 'clearing.png'));
   await journey.tap('ascend');
   await scene.run(3000);

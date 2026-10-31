@@ -1,0 +1,8 @@
+{
+  "occupied_voxels": 463788,
+  "naive_cube_faces": 2782728,
+  "exposed_cell_faces": 43590,
+  "merged_quads": 19092,
+  "triangles": 38184,
+  "cell_size": 2.5
+}

@@ -8,3 +8,5 @@
 /app.contract.d.ts
 /assets/
 /.baked-assets.json
+
+__pycache__/
