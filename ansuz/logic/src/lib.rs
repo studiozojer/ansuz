@@ -412,6 +412,10 @@ impl Game for Ansuz {
                         lab.replay(&mut n);
                     }
                     n.mode = args.mode;
+                } else if message == "lab:forget" {
+                    lab = lab::Lab::default();
+                    elements.reset(args.element);
+                    n = Navigation { mode: args.mode, home: args.home, ..Default::default() };
                 } else if message == "lab:reset" {
                     if lab.recording {
                         w.emit(lab.finish());

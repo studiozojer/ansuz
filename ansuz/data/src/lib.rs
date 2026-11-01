@@ -222,15 +222,18 @@ impl DataSource for AppData {
     }
 
     fn grants(&self) -> &str {
-        "fs.read app:/data\nfs.write app:/data\nnet.fetch https://ansuz.jera.ink\nsecret.keep ansuz-recordings-session-v1"
+        cloud::GRANTS
     }
 
-    fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+    fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
         if cloud::Cloud::owns(source) {
             return Ok(self.cloud.query(source));
         }
         if gestures::Gestures::owns(source) {
-            return Ok(self.gestures.query(source));
+            if source == "gestureTakes" && args.first().and_then(Value::as_str).unwrap_or("") != self.cloud.owner() {
+                return Ok(gestures::Gestures::hidden());
+            }
+            return Ok(self.gestures.query(source, &self.cloud.owner()));
         }
         match source {
             "loadSurfaceNotes" => Ok(library_value(&empty(), "", false)),
@@ -246,12 +249,24 @@ impl DataSource for AppData {
         args: &[Value],
     ) -> Result<Answer, DataError> {
         if cloud::Cloud::owns(source) {
-            return Ok(self
-                .cloud
-                .answer(store, source, args, self.gestures.takes()));
+            return Ok(self.cloud.answer(
+                store,
+                source,
+                args,
+                if source == "syncRecordings" {
+                    self.gestures.takes(&self.cloud.owner())
+                } else {
+                    None
+                },
+            ));
         }
         if gestures::Gestures::owns(source) {
-            return Ok(self.gestures.answer(source, args));
+            // Never publish one account's rows under a different resource key,
+            // including the empty key while authorization is still restoring.
+            if source == "gestureTakes" && args.first().and_then(Value::as_str).unwrap_or("") != self.cloud.owner() {
+                return Ok(Answer::Now(gestures::Gestures::hidden()));
+            }
+            return Ok(self.gestures.answer(source, args, &self.cloud.owner()));
         }
         match source {
             "loadSurfaceNotes" => {
@@ -298,14 +313,20 @@ impl DataSource for AppData {
         &mut self,
         store: &mut Store,
         source: &str,
-        _: &[Value],
+        args: &[Value],
         outcome: Outcome,
     ) -> Result<Answer, DataError> {
         if cloud::Cloud::owns(source) {
-            return Ok(self.cloud.parse(store, outcome));
+            return Ok(self
+                .cloud
+                .parse(store, &cloud::request_key(source, args), source, outcome));
         }
         if gestures::Gestures::owns(source) {
-            return Ok(self.gestures.parse(source, outcome));
+            let answer = self.gestures.parse(source, outcome, &self.cloud.owner());
+            if source == "gestureTakes" && matches!(answer, Answer::Now(_)) && args.first().and_then(Value::as_str).unwrap_or("") != self.cloud.owner() {
+                return Ok(Answer::Now(gestures::Gestures::hidden()));
+            }
+            return Ok(answer);
         }
         let Some(pending) = self.pending.take() else {
             return Err(DataError::Unavailable(

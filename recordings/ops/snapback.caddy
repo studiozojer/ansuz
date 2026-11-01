@@ -6,7 +6,17 @@ ansuz.jera.ink {
         X-Content-Type-Options nosniff
         -Server
     }
-    reverse_proxy 127.0.0.1:4431 {
-        header_up -x-snapback-persona
+    @oauth path /oauth/* /auth/refresh
+    handle @oauth {
+        reverse_proxy 127.0.0.1:4433
+    }
+    @administration path /auth/session /auth/revoke /auth/delete-account
+    handle @administration {
+        respond "Not available" 403
+    }
+    handle {
+        reverse_proxy 127.0.0.1:4431 {
+            header_up -x-snapback-persona
+        }
     }
 }

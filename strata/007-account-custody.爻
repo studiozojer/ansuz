@@ -1,0 +1,18 @@
+---
+id: ansuz/strata/007-account-custody
+title: "A separate service is not a separate human identity"
+captured: 2026-11-01
+baseline: 695821d
+edges:
+  - target: ansuz/strata/006-recording-history
+    type: corrects
+    note: "David requires existing ATproto / everything accounts; password accounts were an implementation mistake."
+---
+
+David asked to fix runtime login and fundamental account handling. Ansuz now authorizes an existing ATproto account and binds the private recording archive to the verified DID. Jera's prior correction and official OAuth SDK boundary provide the implementation precedent; Ansuz keeps separate credentials, client metadata, endpoint and service storage. Login does not publish recordings to the ATproto network.
+
+The deeper correction is ownership. A recording belongs to its capturing account or remains explicitly device-only. Signing in cannot silently reassign or upload another collection. Adding an older device-only take is a deliberate act that leaves its trace unchanged. Account transitions clear loaded replay state and reject late responses. The original local file and cloud rows are preserved, without guessing an email-to-DID mapping. The studio reader receives an independent ordinary machine identity and access only through a human grant.
+
+Runtime testing found a local-file load stranded when restoring identity replaced its resource continuation. Restarting superseded reads and withholding mismatched account views make restoration part of the ownership boundary. Launch-scoped resource identities deliberately avoid presenting kept private answers before account restoration; the compiler's launch-identity warnings reflect that choice.
+
+Automated provider fixtures, actual storage permissions, offline restoration and native installation are evidence about implementation. Real existing-account approval and callback return on the phone remain David's acceptance check; installation is not that approval.

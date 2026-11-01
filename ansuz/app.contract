@@ -31,6 +31,7 @@ shape GestureTakes
   items: GestureTake[]
   error: string
   ready: bool
+  unassigned: GestureTake[]
 
 shape GestureSaved
   ok: bool
@@ -51,6 +52,7 @@ shape RecordingCloud
   error: string
   more: bool
   shared: bool
+  ready: bool
   principal: string
 
 shape CloudLoaded
@@ -76,34 +78,50 @@ component Ansuz
       labFlat = true
     postMessage("lab:replay", "world")
   state cloudTab = false
-  state cloudEmail = ""
-  state cloudPassword = ""
+  state cloudHandle = ""
+  state cloudRevision = 0
+  state labAccount = ""
+  state labOwner = ""
+  state showDeviceOnly = false
   action cloudChooseTab(value: bool)
     cloudTab = value
-  resource cloudState = recordingCloud() as shape RecordingCloud
+  // Deliberate launch identity: never paint a kept private answer before checking the saved account.
+  resource cloudState = recordingCloud(cloudRevision, labTime.epochAtZero) as shape RecordingCloud
   mutation cloudResult as shape RecordingCloud refreshes cloudState
-  mutation cloudDownload as shape CloudLoaded then cloudReceived
+  mutation cloudDownload as shape CloudLoaded refreshes cloudState then cloudReceived
   derive cloudJson = match cloudDownload { case some(t) => t.json, case none => "" }
   derive cloudNote = match cloudDownload { case some(t) => t.expected, case none => "" }
   derive cloudLoadError = match cloudDownload { case some(t) => t.error, case none => "" }
-  action cloudEmailChange(text: string)
-    cloudEmail = text
-  action cloudPasswordChange(text: string)
-    cloudPassword = text
-  action cloudConnect(signup: bool)
-    send cloudResult = connectRecordings(cloudEmail, cloudPassword, signup)
-    cloudPassword = ""
-  action cloudSync
-    send cloudResult = syncRecordings()
-  action cloudMore
-    send cloudResult = moreRecordings()
-  action cloudDisconnect
+  action cloudHandleChange(text: string)
+    cloudHandle = text
+  action cloudConnect
+    send cloudResult = connectRecordings(cloudHandle, labTime.epochAtZero + performanceNow())
+  task watchAccount when cloudState.ready and labAccount != cloudState.principal key=cloudState.principal
+    after(1, clearAccountView)
+  action clearAccountView
+    labAccount = cloudState.principal
+    labNote = ""
+    labTrace = ""
+    labImport = ""
+    labOwner = ""
     cloudDownload = none
-    send cloudResult = disconnectRecordings()
+    if not pending(labSaved)
+      labSaved = none
+    showDeviceOnly = false
+    postMessage("lab:forget", "world")
+  action cloudSync
+    send cloudResult = syncRecordings(labTime.epochAtZero + performanceNow())
+  action cloudMore
+    send cloudResult = moreRecordings(labTime.epochAtZero + performanceNow())
+  action cloudDisconnect
+    clearAccountView()
+    send cloudResult = disconnectRecordings(labTime.epochAtZero + performanceNow())
+    cloudRevision = cloudRevision + 1
+    refresh cloudState
   action cloudShare
-    send cloudResult = shareRecordings(not cloudState.shared)
+    send cloudResult = shareRecordings(not cloudState.shared, labTime.epochAtZero + performanceNow())
   action cloudFetch(digest: string)
-    send cloudDownload = loadCloudTake(digest)
+    send cloudDownload = loadCloudTake(digest, labTime.epochAtZero + performanceNow())
   action cloudReceived
     if cloudJson != ""
       labLoad(cloudJson, cloudNote)
@@ -114,7 +132,7 @@ component Ansuz
   state labLibrary = false
   state labCopied = false
   resource labTime = exactTime() as shape LabTime
-  resource labTakes = gestureTakes() as shape GestureTakes
+  resource labTakes = gestureTakes(cloudState.principal, cloudRevision, labTime.epochAtZero) as shape GestureTakes
   mutation labSaved as shape GestureSaved refreshes labTakes
   derive labSaveError = match labSaved { case some(s) => s.error, case none => "" }
   action openLab
@@ -125,20 +143,23 @@ component Ansuz
   action labCommand(command: string)
     postMessage(`lab:${command}`, "world")
   action labRecord
+    labOwner = cloudState.principal
     labCopied = false
     postMessage(`lab:record|${performanceNow()}`, "world")
   action labObserve(phase: string, e: PointerEvent)
     postMessage(`finger|${phase}|${e.pointerId}|${e.offsetX}|${e.offsetY}|${e.buttons}|${performanceNow()}`, "world")
   action labReceive(text: string)
     labTrace = text
-    send labSaved = saveGestureTake(text, labNote, labTime.epochAtZero + performanceNow())
+    send labSaved = saveGestureTake(text, labNote, labTime.epochAtZero + performanceNow(), labOwner)
   action labSaveAgain
-    send labSaved = saveGestureTake(labTrace, labNote, labTime.epochAtZero + performanceNow())
+    send labSaved = saveGestureTake(labTrace, labNote, labTime.epochAtZero + performanceNow(), labOwner)
   action labEditNote(text: string)
     labNote = text
   action labShowLibrary
     labLibrary = not labLibrary
   action labLoad(text: string, note: string)
+    if not pending(labSaved)
+      labSaved = none
     labTrace = text
     labNote = note
     labLibrary = false
@@ -148,8 +169,12 @@ component Ansuz
   action labCopy(text: string)
     copyText(text)
     labCopied = true
+  action claimDeviceTake(id: string)
+    send labSaved = claimGestureTake(id, cloudState.principal)
+  action toggleDeviceOnly
+    showDeviceOnly = not showDeviceOnly
   action labDelete(id: string)
-    send labSaved = deleteGestureTake(id)
+    send labSaved = deleteGestureTake(id, cloudState.principal)
   state orbitMode = 0
   state orbitHome = 0
   resource orbit = exactSurface("world") as shape OrbitHud
@@ -299,21 +324,22 @@ component Ansuz
                 if cloudTab
                   text "ANSUZ RECORDING HISTORY" font-size=10 letter-spacing="0.12em" color="#999999"
                   if not cloudState.connected
-                    text "Connect to keep your takes across devices. Recording stays available offline." font-size=13 color="#aaaaaa"
-                    input type="email" value=cloudEmail input=cloudEmailChange testId="cloud-email" placeholder="Email" aria-label="Recording account email" min-height=44 padding=10 background-color="#252525" border-radius=8
-                    input type="password" value=cloudPassword input=cloudPasswordChange testId="cloud-password" placeholder="Password" aria-label="Recording account password" min-height=44 padding=10 background-color="#252525" border-radius=8
-                    row gap=8
-                      button press=cloudConnect(false) testId="cloud-login" min-height=44 flex=1 background-color="#353535" border-radius=8 disabled=(pending(cloudResult) or pending(cloudDownload))
-                        text "Sign in"
-                      button press=cloudConnect(true) testId="cloud-signup" min-height=44 flex=1 background-color="#353535" border-radius=8 disabled=(pending(cloudResult) or pending(cloudDownload))
-                        text "Create account"
+                    text "Log in with your everything account." font-size=15
+                    text "Your recordings stay private. Device-only takes are added to an account only when you choose." font-size=12 color="#aaaaaa"
+                    input value=cloudHandle input=cloudHandleChange testId="cloud-handle" placeholder="handle.example or did:plc:…" aria-label="Everything account handle or DID" min-height=44 padding=10 background-color="#252525" border-radius=8
+                    button press=cloudConnect testId="cloud-login" min-height=44 background-color="#dddddd" color="#111111" border-radius=8 disabled=(pending(cloudResult) or pending(cloudDownload) or not cloudState.ready)
+                      text "Log in"
+                    if pending(cloudResult)
+                      button press=cloudDisconnect min-height=44 background-color="#252525" border-radius=8
+                        text "Cancel sign-in"
                   else
-                    text "Sync uploads saved device takes and refreshes your history." font-size=12 color="#aaaaaa"
+                    text cloudState.principal testId="account-did" font-size=11 overflow-wrap="anywhere" color="#cccccc"
+                    text "Sync uploads only this account’s saved takes." font-size=12 color="#aaaaaa"
                     row gap=8
                       button press=cloudSync testId="cloud-sync" min-height=44 flex=1 background-color="#dddddd" color="#111111" border-radius=8 disabled=(pending(cloudResult) or pending(cloudDownload))
                         text "Sync"
-                      button press=cloudDisconnect min-height=44 flex=1 background-color="#252525" border-radius=8 disabled=(pending(cloudResult) or pending(cloudDownload))
-                        text "Disconnect"
+                      button press=cloudDisconnect min-height=44 flex=1 background-color="#252525" border-radius=8
+                        text "Sign out"
                     button press=cloudShare testId="cloud-share" min-height=44 background-color="#252525" border-radius=8 disabled=(pending(cloudResult) or pending(cloudDownload))
                       text (cloudState.shared ? "Revoke agent access" : "Share history with studio agent")
                     text (cloudState.shared ? "Studio agent can read and download your original takes." : "History is private to this account.") font-size=12 color="#aaaaaa"
@@ -333,9 +359,9 @@ component Ansuz
                   text cloudState.error font-size=12 color="#e0bbbb"
                   text cloudLoadError font-size=12 color="#e0bbbb"
                 else
-                  text "SAVED ON THIS DEVICE · SYNC FROM CLOUD TAB" font-size=10 letter-spacing="0.08em" color="#999999"
+                  text (cloudState.connected ? "THIS ACCOUNT · ON THIS DEVICE" : "DEVICE ONLY · NOT ASSIGNED TO AN ACCOUNT") font-size=10 letter-spacing="0.08em" color="#999999"
                   if labTakes.items.length == 0
-                    text "No takes yet. Record a gesture to begin." font-size=14 color="#aaaaaa"
+                    text (labTakes.ready ? "No takes yet. Record a gesture to begin." : "Loading device takes…") font-size=14 color="#aaaaaa"
                   for take in labTakes.items key=take.id
                     column padding=12 gap=8 background-color="#191919" border-radius=12
                       text take.label font-size=15 font-weight=500
@@ -346,8 +372,19 @@ component Ansuz
                           text "Load"
                         button press=labCopy(take.json) min-height=44 flex=1 border-radius=8 background-color="#303030"
                           text "Copy JSON"
-                        button press=labDelete(take.id) min-height=44 min-width=58 border-radius=8 background-color="#202020" aria-label="Delete this saved take"
+                        button press=labDelete(take.id) disabled=pending(labSaved) min-height=44 min-width=58 border-radius=8 background-color="#202020" aria-label="Delete this saved take"
                           text "Delete"
+                  if cloudState.connected and labTakes.unassigned.length > 0
+                    button press=toggleDeviceOnly testId="unassigned-takes" min-height=44 background-color="#252525" border-radius=8
+                      text (showDeviceOnly ? "Hide device-only takes" : "Add device-only takes to this account")
+                    if showDeviceOnly
+                      text "Choosing Add assigns this take to the signed-in account. Sync uploads it afterward." font-size=12 color="#aaaaaa"
+                      for take in labTakes.unassigned key=take.id
+                        row gap=8 align-items="center"
+                          text take.label flex=1 font-size=13
+                          button press=claimDeviceTake(take.id) disabled=pending(labSaved) min-height=44 padding=10 background-color="#303030" border-radius=8
+                            text "Add to this account"
+                  text labSaveError color="#e0bbbb" font-size=12
                   text labTakes.error color="#e0bbbb" font-size=12
                   if labCopied
                     text "JSON copied." font-size=12 color="#cccccc"
@@ -358,7 +395,7 @@ component Ansuz
                   button press=labCommand("stop") testId="lab-stop" flex=1 min-height=44 border-radius=10 background-color="#dddddd" color="#111111"
                     text "Stop"
                 else
-                  button press=labRecord testId="lab-record" flex=1 min-height=44 border-radius=10 background-color="#dddddd" color="#111111" disabled=(not labTakes.ready)
+                  button press=labRecord testId="lab-record" flex=1 min-height=44 border-radius=10 background-color="#dddddd" color="#111111" disabled=(not labTakes.ready or not cloudState.ready or pending(labSaved))
                     text "Record"
                 button press=labReplay testId="lab-replay" flex=1 min-height=44 border-radius=10 background-color="#252525" disabled=(not orbit.lab_ready or orbit.lab_recording or orbit.lab_replaying)
                   text "Replay"
@@ -369,7 +406,7 @@ component Ansuz
               if labSaveError != ""
                 text labSaveError font-size=12 color="#e0bbbb"
                 row gap=8
-                  button press=labSaveAgain min-height=44 flex=1 background-color="#252525"
+                  button press=labSaveAgain disabled=pending(labSaved) min-height=44 flex=1 background-color="#252525"
                     text "Retry save"
                   button press=labCopy(labTrace) min-height=44 flex=1 background-color="#252525"
                     text "Copy unsaved JSON"

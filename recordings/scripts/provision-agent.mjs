@@ -1,22 +1,11 @@
-import { mkdir, writeFile, readFile } from 'node:fs/promises';
-import { dirname } from 'node:path';
-import { randomBytes } from 'node:crypto';
-import { RecordingClient } from './client.mjs';
-const file=process.env.ANSUZ_CREDENTIALS_FILE;
-if(!file)throw Error('Set ANSUZ_CREDENTIALS_FILE to a private destination.');
-let config;
-try{config=JSON.parse(await readFile(file,'utf8'));}
-catch(e){if(e.code!=='ENOENT')throw e;}
-if(!config){
- config={origin:'https://ansuz.jera.ink',email:`studio-agent-${randomBytes(6).toString('hex')}@ansuz.local`,password:randomBytes(32).toString('base64url')};
- await mkdir(dirname(file),{recursive:true,mode:0o700});
- // Keep recovery credentials before attempting a write with an uncertain network outcome.
- await writeFile(file,JSON.stringify(config,null,2)+'\n',{flag:'wx',mode:0o600});
-}
-const client=new RecordingClient(config.origin);
-let result;
-try{result=await client.request('/auth/login',{email:config.email,password:config.password});}
-catch{result=await client.request('/auth/signup',{email:config.email,password:config.password});}
-if(!result.session?.token)throw Error('No agent session returned');
-config.session=result.session;await writeFile(file,JSON.stringify(config,null,2)+'\n',{mode:0o600});
-console.log(config.session.principal);
+// Import a server-issued ordinary operator session from stdin. No password accounts.
+import {mkdir,writeFile,rename} from 'node:fs/promises';
+import {dirname} from 'node:path';
+const file=process.env.ANSUZ_CREDENTIALS_FILE;if(!file)throw Error('Set ANSUZ_CREDENTIALS_FILE.');
+let input='';for await(const chunk of process.stdin){input+=chunk;if(input.length>16384)throw Error('Credential input too large');}
+const config=JSON.parse(input);
+if(config.origin!=='https://ansuz.jera.ink'||config.mode!=='operator-session'||config.session?.principal!=='operator:ansuz-recorder'||!config.session?.token||!Number.isFinite(config.session.expiresAt)||config.session.expiresAt<=Date.now())throw Error('Invalid operator session');
+await mkdir(dirname(file),{recursive:true,mode:0o700});
+// Preserve the earlier local credential file; never reinterpret its account.
+try{await rename(file,file+'.retired-'+Date.now());}catch(e){if(e.code!=='ENOENT')throw e;}
+await writeFile(file,JSON.stringify(config,null,2)+'\n',{flag:'wx',mode:0o600});console.log(config.session.principal);

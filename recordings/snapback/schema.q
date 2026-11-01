@@ -1,4 +1,5 @@
-use identity password
+-- Verified identities arrive through the ATproto authorization service.
+-- No password or guest account creation.
 
 -- Original evidence. Interpretation belongs in separate annotations.
 table recordings:
@@ -48,3 +49,6 @@ mutation removeReader(reader: principal):
   delete readers[viewer, reader]
 query sharedLibraries(c: cursor ?):
   return readers where .reader = viewer first 50 by .id after c
+
+query currentIdentity():
+  return { did: viewer }

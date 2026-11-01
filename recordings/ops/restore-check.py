@@ -4,7 +4,8 @@ import hashlib, json, os, pathlib, shutil, subprocess, tempfile, time, urllib.re
 BASE=pathlib.Path('/var/lib/ansuz-recordings')
 CLI='/opt/ansuz-recordings/node_modules/.bin/snapback4'
 ENV=dict(os.environ, PATH='/opt/ansuz-recordings/runtime/bin:'+os.environ['PATH'])
-PROBE=BASE/'restore-probe.json'
+PROBE=BASE/'restore-probe-atproto.json'
+service_token=(BASE/'auth/service-token').read_text().strip()
 def post(origin,path,body,token=None):
     headers={'Content-Type':'application/json'}
     if token: headers['Authorization']='Bearer '+token
@@ -15,16 +16,16 @@ def post(origin,path,body,token=None):
 origin='http://127.0.0.1:4431'
 if not PROBE.exists():
     import secrets
-    creds={'email':'restore-'+secrets.token_hex(8)+'@ansuz.test','password':secrets.token_urlsafe(32)}
+    principal='did:web:restore-check.invalid'
     # Synthetic evidence belongs to this probe account, never the user's library.
-    session=post(origin,'/auth/signup',creds)['session']
+    session=post(origin,'/auth/session',{'principal':principal,'days':1},service_token)['session']
     trace=json.dumps({'schema':'ansuz.gesture-take','version':3,'hz':120,'expected':'Synthetic restore proof','frames':[[0]*22 for _ in range(2400)]},separators=(',',':')).encode()
     req=urllib.request.Request(origin+'/assets?as=file&name=restore-proof.json',data=trace,headers={'Authorization':'Bearer '+session['token'],'Content-Type':'application/json'},method='POST')
     with urllib.request.urlopen(req) as r: asset=json.load(r)['asset']
     digest=hashlib.sha256(trace).hexdigest()
     args={'digest':digest,'label':'Synthetic restore proof','expected':'Synthetic restore proof','element':3,'captured':int(time.time()*1000),'frames':2400,'model':'restore-proof/1','trace':{'id':asset['id']}}
     row=post(origin,'/m/archive',{'id':secrets.token_hex(16),'args':args},session['token'])['result']
-    PROBE.write_text(json.dumps({'credentials':creds,'owner':session['principal'],'digest':digest,'asset':asset['id'],'recording':row['id']}))
+    PROBE.write_text(json.dumps({'owner':session['principal'],'digest':digest,'asset':asset['id'],'recording':row['id']}))
     PROBE.chmod(0o600)
 probe=json.loads(PROBE.read_text())
 subprocess.run(['systemctl','start','ansuz-recordings-backup.service'],check=True)
@@ -43,7 +44,8 @@ try:
         except Exception:
             if attempt==39: raise
             time.sleep(.25)
-    session=post(restored,'/auth/login',probe['credentials'])['session']
+    restored_token=(pathlib.Path(directory)/'auth/service-token').read_text().strip()
+    session=post(restored,'/auth/session',{'principal':probe['owner'],'days':1},restored_token)['session']
     row=post(restored,'/q/findTake',{'args':{'owner':probe['owner'],'digest':probe['digest']}},session['token'])['data']
     assert row['id']==probe['recording']
     req=urllib.request.Request(restored+'/assets/'+probe['asset'],headers={'Authorization':'Bearer '+session['token']})
