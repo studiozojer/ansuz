@@ -14,6 +14,8 @@ shape OrbitHud
   lab_seconds: number
   lab_samples: number
   lab_observed: number
+  lab_contacts: number
+  lab_delivered: number
   lab_recording: bool
   lab_replaying: bool
   lab_ready: bool
@@ -101,6 +103,7 @@ component Ansuz
   state cloudRevision = 0
   state labAccount = ""
   state labOwner = ""
+  state labCapturedAt = 0
   state showDeviceOnly = false
   action cloudChooseTab(value: bool)
     cloudTab = value
@@ -216,15 +219,16 @@ component Ansuz
     postMessage(`lab:${command}`, "world")
   action labRecord
     labOwner = cloudState.principal
+    labCapturedAt = labTime.epochAtZero + performanceNow()
     labCopied = false
     postMessage(`lab:record|${performanceNow()}`, "world")
   action labObserve(phase: string, e: PointerEvent)
     postMessage(`finger|${phase}|${e.pointerId}|${e.offsetX}|${e.offsetY}|${e.buttons}|${performanceNow()}`, "world")
   action labReceive(text: string)
     labTrace = text
-    send labSaved = saveGestureTake(text, labNote, labTime.epochAtZero + performanceNow(), labOwner)
+    send labSaved = saveGestureTake(text, labNote, labCapturedAt, labOwner)
   action labSaveAgain
-    send labSaved = saveGestureTake(labTrace, labNote, labTime.epochAtZero + performanceNow(), labOwner)
+    send labSaved = saveGestureTake(labTrace, labNote, labCapturedAt, labOwner)
   action labEditNote(text: string)
     labNote = text
   action labShowLibrary
@@ -501,6 +505,7 @@ component Ansuz
                     text "Retry save"
                   button press=labCopy(labTrace) min-height=44 flex=1 background-color="#252525"
                     text "Copy unsaved JSON"
+              text `${orbit.lab_contacts} contacts · ${orbit.lab_delivered} delivered events` testId="lab-input-count" font-size=11 color="#aaaaaa"
               if orbit.lab_error != ""
                 text orbit.lab_error font-size=12 color="#e0bbbb"
       else

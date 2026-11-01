@@ -76,6 +76,8 @@ npm run build:ios:local
 
 To choose a particular phone, append `-- --phone "your phone name"`. If the right Bun version isn't on PATH, set `BUN=/path/to/bun` for the npm command. The underlying command is `bun ansuz/exact.mjs ios --device --run`: Exact builds, signs, installs, and launches the native app. It does not use `expo run:ios`, Metro, or Expo Go. This installs alongside Zhouyi, with separate local storage.
 
+The recorder now writes version-4 multitouch traces. The tracked `exact-pointer-journal.patch` exposes a bounded, tick-local list of delivered pointer and blur events from Exact's existing canvas input stream. This includes every contact the host delivered, independent of the primary-pointer game API; it does not change recognition or claim raw digitizer input. See [the recording format](recordings/FORMAT.md) for timing, cancellation, replay and capture-limit semantics.
+
 Both local and EAS build commands first run `scripts/patch-exact.sh`. The tracked `exact-xcode26.patch` fixes a Swift name collision and removes unsupported iOS 27 audio APIs while retaining the existing interruption handler. `exact-contact-catch.patch` makes exclusive manipulation handles (`touch-action="none"`) hold their displayed transform on contact in iOS and web, while preserving tap/pan recognition. On iOS, transform targets are hit-tested at their animated position. These patches deliberately leave the SDK checkout modified; the gitlink remains pinned. The script accepts already-applied patches and refuses a different SDK revision. Revisit all patches when upgrading Exact.
 
 ## Install on iPhone with Expo EAS
