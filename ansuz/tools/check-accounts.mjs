@@ -16,6 +16,8 @@ try{
  let searches=0,authorizations=0;
  context.on('requestfailed',r=>console.log('request failed',new URL(r.url()).pathname,r.failure()?.errorText));
  context.on('page',p=>{p.on('console',m=>{if(m.text().startsWith('auth '))console.log(m.text())});p.on('pageerror',e=>console.log('page error',e.message));});
+ // Deterministic image fixture: one transparent pixel; production uses public profiles.
+ await context.route('https://cdn.bsky.app/img/avatar/**',r=>r.request().url().includes('broken')?r.fulfill({status:404,body:''}):r.fulfill({contentType:'image/gif',body:Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7','base64')}));
  await context.route('https://ansuz.jera.ink/**',async route=>{
   const request=route.request();const url=new URL(request.url());
   if(url.pathname==='/oauth/accounts'){searches++;assert.equal(request.headers().authorization,undefined);}
@@ -43,11 +45,15 @@ try{
  assert.equal(await page.locator('input[type="password"],input[type="email"]').count(),0);
  assert(await el('cloud-login').isDisabled());
  await el('cloud-handle').fill('o');await page.waitForTimeout(350);assert.equal(searches,0,'short input does not send public search');
- await el('cloud-handle').fill('ow');await el('suggestion-0').waitFor();assert(await el('cloud-login').isDisabled());
+ await el('cloud-handle').fill('ow');await el('suggestion-0').waitFor();await page.waitForFunction(()=>{const img=document.querySelector('[data-testid="suggestion-0"] img');return img?.complete&&img.naturalWidth>0});assert(await el('cloud-login').isDisabled());
  await page.screenshot({path:resolve(out,'suggestions.png')});await page.setViewportSize({width:320,height:640});await page.waitForTimeout(300);const popupBox=await el('account-suggestions').boundingBox();assert(popupBox.x>=0&&popupBox.x+popupBox.width<=321&&popupBox.y>=0&&popupBox.y+popupBox.height<=641,'narrow suggestion popup fits viewport');await page.screenshot({path:resolve(out,'suggestions-narrow.png')});await page.setViewportSize({width:390,height:844});
  await el('cloud-handle').press('Escape');assert.equal(await el('account-suggestions').isVisible(),false);
  await el('cloud-handle').fill('owne');await el('suggestion-0').waitFor();await el('cloud-handle').press('ArrowDown');await el('suggestion-0').press('Enter');
  assert.equal(await el('cloud-handle').inputValue(),'owner.test');assert.equal(await el('account-suggestions').isVisible(),false);assert.equal(await el('account-did').count(),0);assert.equal(authorizations,0,'selection only fills the handle');
+ await el('cloud-handle').fill('broken');await el('suggestion-0').waitFor();await page.waitForFunction(()=>!document.querySelector('[data-testid="suggestion-0"] img'));assert((await el('suggestion-0').innerText()).includes('T'));
+ await el('cloud-handle').fill('bare');await el('suggestion-0').waitFor();assert.equal(await el('suggestion-0').locator('img').count(),0);await el('suggestion-0').tap();assert.equal(await el('cloud-handle').inputValue(),'owner.test');
+ console.log('PASS avatars: decoded public image, missing-image initial, failed-image fallback, selection preserved');
+
  await el('cloud-handle').fill('owner..test');assert(await el('cloud-login').isDisabled());
  await el('cloud-handle').fill('did:plc:'+'a'.repeat(24));assert.equal(await el('account-suggestions').isVisible(),false);assert.equal(await el('cloud-login').isDisabled(),false);
  offline=true;await el('cloud-handle').fill('unknown.test');await el('suggestions-error').waitFor();assert.equal(await el('cloud-login').isDisabled(),false);offline=false;

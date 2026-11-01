@@ -45,7 +45,10 @@ const client = {
   restore: async did => ({ did }),
 };
 const handler = createHandler({ client, store, publicOrigin: 'https://ansuz.jera.ink', callbacks, snapbackOrigin: upstream, serviceToken: 'fixture-only',
-searchAccounts: async query => ({ query, available: true, complete: true, items: 'owner.test'.includes(query.toLowerCase()) ? [{ did: 'did:plc:' + 'a'.repeat(24), handle: 'owner.test', displayName: 'Test Owner', avatar: '' }] : [] }),
+searchAccounts: async query => {
+  const q=query.toLowerCase(), known='owner.test'.includes(q), fallback=['broken','bare'].includes(q);
+  return {query,available:true,complete:true,items:known||fallback?[{did:'did:plc:'+'a'.repeat(24),handle:'owner.test',displayName:'Test Owner',avatar:q==='bare'?'':`https://cdn.bsky.app/img/avatar/plain/${q==='broken'?'broken':'owner'}.gif`}]:[]};
+},
 fetcher: async (url, options) => {
   if (options.headers.authorization === 'Bearer fixture-only') {
     const token = execFileSync(`${root}node_modules/.bin/snapback4`, ['token', '--service', 'test-auth'], { cwd: directory, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
