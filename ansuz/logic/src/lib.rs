@@ -1,4 +1,5 @@
 use exact_game::*;
+pub mod elements;
 pub mod lab;
 pub mod orbit;
 pub mod records;
@@ -19,6 +20,8 @@ pub struct Options {
     pub take: String,
     #[live]
     pub take_revision: u32,
+    #[live]
+    pub element: u32,
 }
 #[derive(Clone, Copy, Resource)]
 pub struct Navigation {
@@ -57,6 +60,10 @@ struct Hud {
     lab_replaying: bool,
     lab_ready: bool,
     lab_error: String,
+    lab_element: u32,
+    element_phase: String,
+    element_energy: f32,
+    element_charge: f32,
 }
 fn draw(w: &mut World, n: &Navigation, previous_cell: Option<Cell>, args: &Options) {
     let flying = n.mode == 1;
@@ -123,6 +130,7 @@ fn draw(w: &mut World, n: &Navigation, previous_cell: Option<Cell>, args: &Optio
     let lab_replaying = lab.replaying;
     let lab_ready = lab.captured;
     let lab_error = lab.error.clone();
+    let lab_element = lab.source_element;
     let position = lab.position;
     let finger = lab.finger;
     let finger_down = lab.finger_down;
@@ -134,7 +142,7 @@ fn draw(w: &mut World, n: &Navigation, previous_cell: Option<Cell>, args: &Optio
             scale: Vec3::new(0.22, 0.22, 0.01),
             ..Default::default()
         };
-        // HUD-space pointer marker. The 3D view uses the same pointer overlay in Contract.
+        // A marker shows the delivered pointer position in the flat study.
         w.require_mut::<Visible>("lab-finger").0 = flat && finger_down;
         let viewport = w.resource::<LabViewport>().0;
         *w.require_mut::<Transform>("lab-finger") = Transform {
@@ -146,6 +154,45 @@ fn draw(w: &mut World, n: &Navigation, previous_cell: Option<Cell>, args: &Optio
             scale: Vec3::new(0.028, 0.028, 0.01),
             ..Default::default()
         };
+    }
+    let e = w.resource::<elements::Elements>();
+    let element_phase = e.caption().to_string();
+    let element_energy = e.energy;
+    let element_charge = e.charge;
+    if args.lab && args.element > 0 {
+        let object = e.object - Vec2::Y * if e.kind == 3 { e.energy * 0.34 } else { 0. };
+        let hide = e.kind == 2 && e.energy > 0.005;
+        let color = if e.kind == 1 && e.energy > 0.01 {
+            [0.48, 0.07, 0.018]
+        } else {
+            [0.38 + e.charge * 0.25; 3]
+        };
+        let pixels = e.pixels();
+        drop(e);
+        w.require_mut::<Visible>("lab-object").0 = flat && !hide;
+        *w.require_mut::<Transform>("lab-object") = Transform {
+            position: Vec3::new(object.x, -object.y, 0.),
+            scale: Vec3::new(elements::SIZE, elements::SIZE, 0.01),
+            ..Default::default()
+        };
+        *w.require_mut::<Material>("lab-object") = Material::glow(color);
+        for (i, p) in pixels.iter().enumerate() {
+            let name = format!("element-pixel-{i}");
+            w.require_mut::<Visible>(&name).0 = flat && p.visible;
+            if p.visible {
+                *w.require_mut::<Transform>(&name) = Transform {
+                    position: Vec3::new(p.position.x, -p.position.y, 0.035),
+                    scale: Vec3::new(p.size, p.size, 0.008),
+                    ..Default::default()
+                };
+                *w.require_mut::<Material>(&name) = Material::glow(p.color);
+            }
+        }
+    } else if args.lab {
+        *w.require_mut::<Material>("lab-object") = Material::glow([0.45; 3]);
+        for i in 0..elements::PIXELS {
+            w.require_mut::<Visible>(&format!("element-pixel-{i}")).0 = false;
+        }
     }
     w.publish_record(&Hud {
         cell: cell.map_or_else(
@@ -182,6 +229,10 @@ fn draw(w: &mut World, n: &Navigation, previous_cell: Option<Cell>, args: &Optio
         lab_replaying,
         lab_ready,
         lab_error,
+        lab_element,
+        element_phase,
+        element_energy,
+        element_charge,
     });
 }
 #[derive(Default, Resource)]
@@ -199,6 +250,7 @@ impl Game for Ansuz {
         w.register_resource::<Navigation>();
         w.register_resource::<lab::Lab>();
         w.register_resource::<LabViewport>();
+        w.register_resource::<elements::Elements>();
     }
     fn actions() -> Actions {
         Actions::new()
@@ -220,6 +272,9 @@ impl Game for Ansuz {
         w.insert_resource(n);
         w.insert_resource(lab::Lab::default());
         w.insert_resource(LabViewport::default());
+        let mut elements = elements::Elements::default();
+        elements.reset(args.element);
+        w.insert_resource(elements);
         w.insert_resource(Environment {
             background: Some(Color::hex("#0b0b0b")),
             ambient: 0.,
@@ -276,6 +331,17 @@ impl Game for Ansuz {
             );
         }
         if args.lab {
+            for i in 0..elements::PIXELS {
+                w.spawn_named(
+                    &format!("element-pixel-{i}"),
+                    (
+                        Transform::default(),
+                        Mesh::cube(1.),
+                        Material::glow([0.3; 3]),
+                        Visible(false),
+                    ),
+                );
+            }
             for (name, color) in [("lab-object", 0.45), ("lab-finger", 0.95)] {
                 w.spawn_named(
                     name,
@@ -306,6 +372,10 @@ impl Game for Ansuz {
             n.velocity = Vec2::ZERO;
         }
         let mut lab = std::mem::take(&mut *w.resource_mut::<lab::Lab>());
+        let mut elements = std::mem::take(&mut *w.resource_mut::<elements::Elements>());
+        if elements.kind != args.element {
+            elements.reset(args.element);
+        }
         w.resource_mut::<LabViewport>().0 = input.viewport();
         if args.lab {
             if lab.loaded_revision != args.take_revision {
@@ -320,6 +390,9 @@ impl Game for Ansuz {
                     .and_then(|s| s.parse::<f64>().ok())
                     .filter(|n| n.is_finite())
                 {
+                    if args.element > 0 {
+                        elements.reset(args.element);
+                    }
                     lab.start(n, input.viewport(), args, host);
                 } else if message == "lab:stop" {
                     if lab.recording {
@@ -329,7 +402,15 @@ impl Game for Ansuz {
                     n.velocity = Vec2::ZERO;
                     n.down = false;
                 } else if message == "lab:replay" {
-                    lab.replay(&mut n);
+                    if args.element != lab.source_element {
+                        lab.error = format!(
+                            "Choose {} to replay this take.",
+                            elements::name(lab.source_element)
+                        );
+                    } else {
+                        elements.reset(lab.source_element);
+                        lab.replay(&mut n);
+                    }
                     n.mode = args.mode;
                 } else if message == "lab:reset" {
                     if lab.recording {
@@ -337,6 +418,7 @@ impl Game for Ansuz {
                     }
                     lab.replaying = false;
                     lab.position = Vec2::ZERO;
+                    elements.reset(args.element);
                     n = Navigation {
                         mode: args.mode,
                         home: args.home,
@@ -392,6 +474,7 @@ impl Game for Ansuz {
         }
         n.orientation = turn(n.orientation, movement);
         if args.lab {
+            elements.step(&contact, viewport, dt, reduced);
             lab.position += movement * (2. / 0.45);
             if replaying {
                 lab.finger = contact.position;
@@ -410,6 +493,9 @@ impl Game for Ansuz {
                     reduced_motion: reduced,
                     orientation: n.orientation,
                     position: lab.position,
+                    effect_energy: elements.energy,
+                    effect_phase: elements.phase,
+                    effect_position: elements.object,
                 });
                 if lab.frames.len() >= lab::MAX_FRAMES {
                     w.emit(lab.finish());
@@ -419,6 +505,10 @@ impl Game for Ansuz {
                 w.busy("gesture lab");
             }
         }
+        if args.lab && args.element > 0 && (elements.grabbed || elements.energy > 0.001) {
+            w.busy("element response");
+        }
+        *w.resource_mut::<elements::Elements>() = elements;
         *w.resource_mut::<lab::Lab>() = lab;
         if n.velocity.length() > 0.001 {
             w.busy("orbital drift");

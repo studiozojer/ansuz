@@ -14,7 +14,22 @@ Recognition, pinch anchoring and the held transform use Exact's native `transfor
 
 ## Gesture lab
 
-Open **Lab** from the orbital screen. Choose **2D target** or **3D sphere**, enter what should happen, press **Record**, perform the gesture in the field, then press **Stop**. A take stops automatically after 20 seconds and saves locally. **Replay** restores its starting state and runs the recorded primary-pointer input through the same motion function. You can compare the take in either view. Touching the field interrupts replay. **Takes** lists saved recordings with **Load**, **Copy JSON**, and **Delete** controls. Capture a flick, a new contact, a tiny drag, and a stationary hold as one take to preserve their timing.
+The lab also contains four **elemental studies** in its 2D field. Choose an element and grab the cube:
+
+- **Fire:** hold still for about half a second, begin a small slow stroke, then strike quickly. The cube ignites and cools back to normal.
+- **Water:** circle around the original center. Consistent winding dissolves the cube into stirred blue pixels, attracted back toward that center.
+- **Earth:** brace still, lift to the four-corner target, then hold the finishing pose. The block rises on a segmented column. Off-axis motion and premature release require another attempt.
+- **Air:** fan the cube back and forth. It continuously pushes nearby field particles; momentum dissipates after release.
+
+These are deliberate experiments with explicit element selection. “Pressure” means a steady hold, not force sensing. The water and air are bounded particle approximations rather than a full fluid solver. RUMBLE's published pose/base-pose and training-feedback descriptions inspired earth's deliberate sequence; the one-finger dwell thresholds are our own translation. See the [pose guide](https://rumble.wiki.gg/wiki/Poses) and [gym guide](https://rumble.wiki.gg/wiki/Gym). No RUMBLE art or code is used. The pixel effects are generated from a fixed pool of 240 reusable cube meshes; no sprite downloads or per-frame mesh generation are required.
+
+Recording an elemental take resets the exercise to a known start. Trace version 3 adds the selected element, `ansuz.elements/1` model identifier, and per-frame phase, energy and object position. Replay reruns recognition and response from input rather than assigning the recorded output. Versions 1 and 2 remain readable. The original Motion target and 3D sphere remain available. A saved take keeps its original experiment; Replay selects that experiment again. Verification on 2026-10-31: 39 Rust tests pass, including successful and rejected elemental patterns, cooling/settling, cancellation, elemental replay and old trace imports. Real Chromium touch walkthroughs pass for all four effects and the original motion recording workflow; rendered screenshots were inspected. The updated signed build installed and launched on the paired iPhone 16 Pro. Physical feel remains unconfirmed.
+
+```sh
+bun ansuz/tools/check-elements.mjs http://localhost:8768
+```
+
+Open **Lab** from the orbital screen. Choose **2D target** or **3D sphere**, enter what should happen, press **Record**, perform the gesture in the field, then press **Stop**. A take stops automatically after 20 seconds and saves locally. **Replay** restores its starting state and runs the recorded primary-pointer input through the same motion function. Motion takes can be compared in either view; elemental takes replay in their 2D exercise. Touching the field interrupts replay. **Takes** lists saved recordings with **Load**, **Copy JSON**, and **Delete** controls. Capture a flick, a new contact, a tiny drag, and a stationary hold as one take to preserve their timing.
 
 Each take separates canvas observer events from the processed 120 Hz input and simulated response. Version 2 also preserves each frame's viewport and reduced-motion preference; version 1 takes remain readable. Recording is limited to 2,400 frames, 4,800 observer events and twelve saved takes, in a separate `app:/data/gesture-takes.json` file capped at 8 MiB. Saves are atomic; failed writes preserve the previous library and leave the unsaved take available for retry/export. Unreadable storage is preserved. Neither the reading library nor Zhouyi is accessed.
 

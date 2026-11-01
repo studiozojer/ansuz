@@ -16,6 +16,10 @@ shape OrbitHud
   lab_replaying: bool
   lab_ready: bool
   lab_error: string
+  lab_element: number
+  element_phase: string
+  element_energy: number
+  element_charge: number
 
 shape GestureTake
   id: string
@@ -38,6 +42,17 @@ shape LabTime
 component Ansuz
   state study = "orbit"
   state labFlat = true
+  state labElement = 0
+  derive elementHelp = labElement == 1 ? "Hold the cube still. Draw slowly, then strike fast." : (labElement == 2 ? "Grab the cube. Trace a steady circle around its center." : (labElement == 3 ? "Hold still. Lift to the mark. Hold that pose." : "Grab the cube. Fan it back and forth through the field."))
+  action chooseElement(value: number)
+    labElement = value
+    labFlat = true
+    postMessage("lab:reset", "world")
+  action labReplay
+    labElement = orbit.lab_element
+    if orbit.lab_element > 0
+      labFlat = true
+    postMessage("lab:replay", "world")
   state labNote = ""
   state labTrace = ""
   state labImport = ""
@@ -52,6 +67,7 @@ component Ansuz
     study = "lab"
   action labTarget(flat: bool)
     labFlat = flat
+    labElement = 0
   action labCommand(command: string)
     postMessage(`lab:${command}`, "world")
   action labRecord
@@ -188,18 +204,35 @@ component Ansuz
             button press=showStudy("orbit") testId="lab-back" min-height=44 padding=10 border-radius=12 background-color="#232323" disabled=orbit.lab_recording
               text "Orbit"
           row padding="0px 16px 10px" gap=6 flex-shrink=0
-            button press=labTarget(true) testId="lab-flat" aria-pressed=labFlat flex=1 min-height=44 border-radius=12 background-color=(labFlat ? "#dddddd" : "#202020") color=(labFlat ? "#111111" : "#b7b7b7") disabled=orbit.lab_recording
+            button press=labTarget(true) testId="lab-flat" aria-pressed=labFlat flex=1 min-height=44 border-radius=12 background-color=(labFlat ? "#dddddd" : "#202020") color=(labFlat ? "#111111" : "#b7b7b7") disabled=(orbit.lab_recording or orbit.lab_replaying)
               text "2D target"
-            button press=labTarget(false) testId="lab-3d" aria-pressed=(not labFlat) flex=1 min-height=44 border-radius=12 background-color=(labFlat ? "#202020" : "#dddddd") color=(labFlat ? "#b7b7b7" : "#111111") disabled=orbit.lab_recording
+            button press=labTarget(false) testId="lab-3d" aria-pressed=(not labFlat) flex=1 min-height=44 border-radius=12 background-color=(labFlat ? "#202020" : "#dddddd") color=(labFlat ? "#b7b7b7" : "#111111") disabled=(orbit.lab_recording or orbit.lab_replaying)
               text "3D sphere"
+          row padding="0px 12px 8px" gap=4
+            button press=chooseElement(0) testId="element-motion" flex=1 min-height=44 border-radius=8 background-color=(labElement == 0 ? "#454545" : "#202020") disabled=(orbit.lab_recording or orbit.lab_replaying)
+              text "Motion" font-size=12
+            button press=chooseElement(1) testId="element-fire" flex=1 min-height=44 border-radius=8 background-color=(labElement == 1 ? "#633528" : "#202020") disabled=(orbit.lab_recording or orbit.lab_replaying)
+              text "Fire" font-size=12
+            button press=chooseElement(2) testId="element-water" flex=1 min-height=44 border-radius=8 background-color=(labElement == 2 ? "#284559" : "#202020") disabled=(orbit.lab_recording or orbit.lab_replaying)
+              text "Water" font-size=12
+            button press=chooseElement(3) testId="element-earth" flex=1 min-height=44 border-radius=8 background-color=(labElement == 3 ? "#4b4436" : "#202020") disabled=(orbit.lab_recording or orbit.lab_replaying)
+              text "Earth" font-size=12
+            button press=chooseElement(4) testId="element-air" flex=1 min-height=44 border-radius=8 background-color=(labElement == 4 ? "#3a474b" : "#202020") disabled=(orbit.lab_recording or orbit.lab_replaying)
+              text "Air" font-size=12
           box testId="lab-stage" position="relative" flex=1 min-height=170 margin="0px 12px" overflow="hidden" border-radius=16 background-color="#0b0b0b"
-            canvas surface=world(mode=orbitMode, home=orbitHome, reduced_motion=media.prefersReducedMotion, lab=true, flat=labFlat, take=labImport, take_revision=labLoadVersion) testId="world" width="100%" height="100%" position="absolute" inset=0 touch-action="none" pointerdown=labObserve("down") pointermove=labObserve("move") pointerup=labObserve("up") message=labReceive aria-label="Gesture recording field. Flick, catch, and hold the target." tabindex=0
+            canvas surface=world(mode=orbitMode, home=orbitHome, reduced_motion=media.prefersReducedMotion, lab=true, flat=labFlat, element=labElement, take=labImport, take_revision=labLoadVersion) testId="world" width="100%" height="100%" position="absolute" inset=0 touch-action="none" pointerdown=labObserve("down") pointermove=labObserve("move") pointerup=labObserve("up") message=labReceive aria-label="Gesture recording field. Flick, catch, and hold the target." tabindex=0
               row position="absolute" left=14 right=14 top=14 justify-content="space-between" pointer-events="none"
                 text orbit.lab_status testId="lab-status" font-size=10 letter-spacing="0.1em" color="#cccccc"
                 text `${round(orbit.lab_seconds * 10) / 10}s` testId="lab-duration" font-size=12 font-variant-numeric="tabular-nums" color="#aaaaaa"
               row position="absolute" bottom=14 left=14 right=14 justify-content="space-between" pointer-events="none"
                 text "FINGER + RESPONSE" font-size=10 letter-spacing="0.08em" color="#888888"
-                text orbit.motion testId="lab-contact" font-size=10 color="#cccccc"
+                text (labElement == 0 ? orbit.motion : orbit.element_phase) testId="lab-contact" font-size=10 color="#cccccc"
+            if labElement > 0
+              column position="absolute" top=38 left=14 right=14 gap=5 pointer-events="none"
+                text elementHelp font-size=12 color="#aaaaaa"
+                row gap=10
+                  text `CHARGE ${round(orbit.element_charge * 100)}%` testId="element-charge" font-size=10 color="#999999" font-variant-numeric="tabular-nums"
+                  text `ENERGY ${round(orbit.element_energy * 100)}%` testId="element-energy" font-size=10 color="#999999" font-variant-numeric="tabular-nums"
             if not labFlat
               box position="absolute" left="50%" top="50%" width=4 height=4 background-color="#ffffff" pointer-events="none"
             if labLibrary
@@ -231,12 +264,12 @@ component Ansuz
                 else
                   button press=labRecord testId="lab-record" flex=1 min-height=44 border-radius=10 background-color="#dddddd" color="#111111" disabled=(not labTakes.ready)
                     text "Record"
-                button press=labCommand("replay") testId="lab-replay" flex=1 min-height=44 border-radius=10 background-color="#252525" disabled=(not orbit.lab_ready or orbit.lab_recording or orbit.lab_replaying)
+                button press=labReplay testId="lab-replay" flex=1 min-height=44 border-radius=10 background-color="#252525" disabled=(not orbit.lab_ready or orbit.lab_recording or orbit.lab_replaying)
                   text "Replay"
                 button press=labCommand("reset") testId="lab-reset" min-width=64 min-height=44 border-radius=10 background-color="#252525" disabled=orbit.lab_recording
                   text "Center"
               input value=labNote input=labEditNote testId="lab-note" placeholder="What should this gesture do?" aria-label="Expected gesture behavior" min-height=44 padding=10 border-radius=10 background-color="#191919" color="#dddddd" font-size=13 disabled=(orbit.lab_recording or orbit.lab_replaying)
-              text (orbit.lab_recording ? "Recording finger input and response · up to 20s" : "Record → flick → catch → tiny drag → hold → Stop") testId="lab-help" font-size=11 color="#aaaaaa"
+              text (orbit.lab_recording ? "Recording finger input and response · up to 20s" : (labElement == 0 ? "Record → flick → catch → tiny drag → hold → Stop" : "Record resets the exercise · release to rest · Center to restart")) testId="lab-help" font-size=11 color="#aaaaaa"
               if labSaveError != ""
                 text labSaveError font-size=12 color="#e0bbbb"
                 row gap=8

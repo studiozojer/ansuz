@@ -44,6 +44,9 @@ pub struct Frame {
     pub contact: Contact,
     pub viewport: Vec2,
     pub reduced_motion: bool,
+    pub effect_energy: f32,
+    pub effect_phase: u32,
+    pub effect_position: Vec2,
     pub orientation: Quat,
     pub position: Vec2,
 }
@@ -70,6 +73,7 @@ pub struct Lab {
     pub viewport: Vec2,
     pub reduced_motion: bool,
     pub source_mode: u32,
+    pub source_element: u32,
     pub host_start: f64,
     pub error: String,
     pub captured: bool,
@@ -83,6 +87,7 @@ impl Lab {
         self.viewport = viewport;
         self.reduced_motion = args.reduced_motion;
         self.source_mode = args.mode;
+        self.source_element = args.element;
         self.host_start = host;
         self.frames.clear();
         self.observed.clear();
@@ -170,7 +175,11 @@ impl Lab {
                     f.position.y,
                     f.viewport.x,
                     f.viewport.y,
-                    f.reduced_motion
+                    f.reduced_motion,
+                    f.effect_energy,
+                    f.effect_phase,
+                    f.effect_position.x,
+                    f.effect_position.y
                 ])
             })
             .collect();
@@ -189,10 +198,10 @@ impl Lab {
                 ])
             })
             .collect();
-        json!({"schema":"ansuz.gesture-take","version":2,"hz":120,"viewport":self.viewport.to_array(),"mode":self.source_mode,
+        json!({"schema":"ansuz.gesture-take","version":3,"element":self.source_element,"element_model":"ansuz.elements/1","hz":120,"viewport":self.viewport.to_array(),"mode":self.source_mode,
             "reduced_motion":self.reduced_motion,"input_layer":"engine tick snapshots; observer events before gesture recognition",
             "limitations":"Primary-pointer replay. Observer up includes cancellation. Not raw digitizer samples or displayed-frame measurements.",
-            "frame_columns":["flags","pointer_id","down","x","y","dx","dy","origin_x","origin_y","qx","qy","qz","qw","object_x","object_y","viewport_w","viewport_h","reduced_motion"],
+            "frame_columns":["flags","pointer_id","down","x","y","dx","dy","origin_x","origin_y","qx","qy","qz","qw","object_x","object_y","viewport_w","viewport_h","reduced_motion","effect_energy","effect_phase","effect_x","effect_y"],
             "observer_columns":["tick","host_ms_from_record","phase_0_down_1_move_2_up","pointer_id","x","y","buttons"],
             "initial":{"orientation":self.initial.orientation.to_array(),"velocity":self.initial.velocity.to_array(),"down":self.initial.down,
                 "pointer":self.initial.pointer,"quiet":self.initial.quiet,"position":self.initial_position.to_array()},
@@ -204,11 +213,23 @@ impl Lab {
         }
         let j: Json = serde_json::from_str(text).map_err(|_| "Invalid take JSON.")?;
         if j["schema"] != "ansuz.gesture-take"
-            || !matches!(j["version"].as_u64(), Some(1 | 2))
+            || !matches!(j["version"].as_u64(), Some(1 | 2 | 3))
             || j["hz"] != 120
         {
             return Err("Unsupported gesture take.".into());
         }
+        let source_element = if j["version"] == 3 {
+            let element = j["element"]
+                .as_u64()
+                .filter(|v| *v <= 4)
+                .ok_or("Invalid element.")? as u32;
+            if j["element_model"] != "ansuz.elements/1" {
+                return Err("Unsupported element model.".into());
+            }
+            element
+        } else {
+            0
+        };
         let array = |v: &Json, n: usize| -> Result<Vec<f32>, String> {
             let a = v
                 .as_array()
@@ -253,7 +274,11 @@ impl Lab {
         {
             let a = r
                 .as_array()
-                .filter(|a| a.len() == 18 || (j["version"] == 1 && a.len() == 15))
+                .filter(|a| {
+                    (j["version"] == 3 && a.len() == 22)
+                        || (j["version"] != 3 && a.len() == 18)
+                        || (j["version"] == 1 && a.len() == 15)
+                })
                 .ok_or("Invalid frame.")?;
             let flags = a[0].as_u64().filter(|v| *v < 16).ok_or("Invalid flags.")?;
             let id = a[1].as_u64().ok_or("Invalid pointer ID.")?;
@@ -267,7 +292,21 @@ impl Lab {
             if numbers[12] < 1. || numbers[13] < 1. {
                 return Err("Invalid sample viewport.".into());
             }
+            let effects = if a.len() == 22 {
+                array(&Json::Array(a[18..22].to_vec()), 4)?
+            } else {
+                vec![0.; 4]
+            };
+            if !(0. ..=1.).contains(&effects[0])
+                || !(0. ..=4.).contains(&effects[1])
+                || effects[1].fract() != 0.
+            {
+                return Err("Invalid effect response.".into());
+            }
             let f = Frame {
+                effect_energy: effects[0],
+                effect_phase: effects[1] as u32,
+                effect_position: Vec2::new(effects[2], effects[3]),
                 viewport: Vec2::new(numbers[12], numbers[13]),
                 reduced_motion: if a.len() == 15 {
                     reduced
@@ -323,6 +362,7 @@ impl Lab {
         self.observed = observed;
         self.viewport = Vec2::new(view[0], view[1]);
         self.source_mode = mode;
+        self.source_element = source_element;
         self.reduced_motion = reduced;
         self.initial = Navigation {
             orientation: q,

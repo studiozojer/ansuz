@@ -44,7 +44,7 @@ fn view(doc: &Json, error: &str, ready: bool) -> Value {
 }
 fn valid_trace(j: &Json) -> bool {
     j["schema"] == "ansuz.gesture-take"
-        && matches!(j["version"].as_u64(),Some(1|2))
+        && matches!(j["version"].as_u64(), Some(1 | 2 | 3))
         && j["hz"] == 120
         && j["frames"]
             .as_array()
