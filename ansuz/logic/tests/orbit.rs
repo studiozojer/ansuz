@@ -154,3 +154,130 @@ fn switching_modes_keeps_cell_and_reset_restores_start() {
     s.run(20.);
     assert_eq!(orientation(&s), Navigation::default().orientation);
 }
+
+fn queue_pointer(s: &mut Sim<Ansuz>, phase: PointerPhase, x: f32, dx: f32, mouse: bool) {
+    s.input(InputEvent::Pointer {
+        id: 9,
+        phase,
+        x,
+        y: 250.,
+        dx,
+        dy: 0.,
+        buttons: if mouse && matches!(phase, PointerPhase::Down | PointerPhase::Move) {
+            1
+        } else {
+            0
+        },
+        at_ms: 0.,
+        player: 0,
+    });
+}
+#[test]
+fn quick_flick_between_ticks_moves_and_launches_drift() {
+    for mode in [0, 1] {
+        for mouse in [false, true] {
+            for terminal_only in [false, true] {
+                let mut s = sim(mode);
+                let before = orientation(&s);
+                // Hover earlier in the same batch must not become contact travel.
+                queue_pointer(&mut s, PointerPhase::Move, 140., 300., false);
+                queue_pointer(&mut s, PointerPhase::Down, 140., 0., mouse);
+                if !terminal_only {
+                    queue_pointer(&mut s, PointerPhase::Move, 200., 60., mouse);
+                }
+                queue_pointer(
+                    &mut s,
+                    PointerPhase::Up,
+                    220.,
+                    if terminal_only { 0. } else { 20. },
+                    mouse,
+                );
+                s.run(10.);
+                let released = orientation(&s);
+                let travel = released.angle_between(before);
+                assert!(
+                    travel > 0.06 && travel < 0.09,
+                    "Contact's 80-point travel was lost or mixed with hover: {travel}"
+                );
+                assert!(s.world().resource::<Navigation>().velocity.x > 0.);
+                s.run(80.);
+                assert_ne!(
+                    orientation(&s),
+                    released,
+                    "Quick flick did not launch drift"
+                );
+            }
+        }
+    }
+}
+#[test]
+fn release_tick_keeps_its_final_movement() {
+    let mut s = sim(0);
+    queue_pointer(&mut s, PointerPhase::Down, 140., 0., false);
+    s.run(10.);
+    let before = orientation(&s);
+    queue_pointer(&mut s, PointerPhase::Move, 200., 60., false);
+    queue_pointer(&mut s, PointerPhase::Up, 220., 20., false);
+    s.run(10.);
+    assert!(
+        orientation(&s).angle_between(before) > 0.06,
+        "Movement immediately before Up was lost"
+    );
+}
+#[test]
+fn tap_and_cancel_in_one_tick_catch_without_spurious_motion() {
+    for cancelled in [false, true] {
+        let mut s = sim(0);
+        drag(&mut s);
+        pointer(&mut s, PointerPhase::Up, 0., 0.);
+        let before = orientation(&s);
+        queue_pointer(&mut s, PointerPhase::Down, 140., 0., false);
+        if cancelled {
+            queue_pointer(&mut s, PointerPhase::Move, 220., 80., false);
+        }
+        queue_pointer(
+            &mut s,
+            if cancelled {
+                PointerPhase::Cancel
+            } else {
+                PointerPhase::Up
+            },
+            140.,
+            0.,
+            false,
+        );
+        s.run(10.);
+        assert_eq!(
+            orientation(&s),
+            before,
+            "Tap/cancel must catch existing drift"
+        );
+        s.run(100.);
+        assert_eq!(orientation(&s), before);
+    }
+}
+#[test]
+fn reduced_motion_keeps_quick_flick_displacement_but_not_drift_or_hover() {
+    let mut s = Sim::<Ansuz>::new(Options {
+        reduced_motion: true,
+        ..Default::default()
+    })
+    .unwrap();
+    s.viewport(390., 500.);
+    let start = orientation(&s);
+    queue_pointer(&mut s, PointerPhase::Down, 140., 0., false);
+    queue_pointer(&mut s, PointerPhase::Move, 220., 80., false);
+    queue_pointer(&mut s, PointerPhase::Up, 220., 0., false);
+    s.run(10.);
+    let released = orientation(&s);
+    assert!(released.angle_between(start) > 0.06);
+    s.run(150.);
+    assert_eq!(orientation(&s), released);
+    queue_pointer(&mut s, PointerPhase::Move, 300., 80., false);
+    s.run(10.);
+    assert_eq!(
+        orientation(&s),
+        released,
+        "Hover after release rotated the sphere"
+    );
+}

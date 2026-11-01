@@ -20,12 +20,24 @@ try {
  await page.goto(process.argv[2]??'http://127.0.0.1:8768');await ready();await rest();
  const bounds=await el('world').boundingBox();
  const start={x:bounds.x+bounds.width*.4,y:bounds.y+bounds.height*.58};
- const drag=async()=>{await touch('touchStart',start);await frames();for(let i=1;i<=8;i++){await touch('touchMove',{x:start.x+i*12,y:start.y-i*7});await frames();}await touch('touchEnd');};
+ const drag=()=>cdp.send('Input.synthesizeScrollGesture',{x:start.x,y:start.y,xDistance:-96,yDistance:56,speed:700,gestureSourceType:'touch',preventFling:false});
  const initial=await state();assert.equal(initial.entities,19);assert.equal(initial.assets.length,2);
  assert.equal(initial.quality.scale,1);assert.equal(initial.published.altitude,1.4);
  await page.screenshot({path:resolve(out,'phone-spin.png')});
  for(const [id,mode] of [['spin-mode',0],['fly-mode',1]]) {
   await el(id).tap();await el('orbit-reset').tap();await rest();await frames(3);
+  const beforeFlick=await state();
+  // Let Chromium deliver a timed touch swipe. Awaiting each CDP contact
+  // separately adds transport pauses that can turn a flick into a held drag.
+  await cdp.send('Input.synthesizeScrollGesture',{x:start.x,y:start.y,xDistance:-75,yDistance:40,speed:2400,gestureSourceType:'touch',preventFling:false});
+  await frames(3);
+  const flicked=await state();
+  assert(!same(flicked.resources.Navigation.orientation,beforeFlick.resources.Navigation.orientation),'Quick flick was lost');
+  assert.equal(flicked.published.motion,'DRIFTING','Quick flick lost release velocity');
+  await touch('touchStart',start);await touch('touchEnd');await frames(2);
+  const tapped=await state();await frames(8);
+  assert(same(tapped.resources.Navigation.orientation,(await state()).resources.Navigation.orientation),'Quick tap did not stop drift');
+  await el('orbit-reset').tap();await rest();await frames(3);
   const before=await state();const reticle=await el('reticle').boundingBox();
   await drag();await frames(2);const moving=await state();
   assert.equal(moving.args.mode,mode);assert(!same(moving.resources.Navigation.orientation,before.resources.Navigation.orientation),'Touch did not revolve');
@@ -40,7 +52,7 @@ try {
   await touch('touchCancel');await frames(2);const cancelled=await state();await frames(10);
   assert(same(cancelled.resources.Navigation.orientation,(await state()).resources.Navigation.orientation),'Cancelled touch kept drifting');
   await page.screenshot({path:resolve(out,mode?'phone-fly.png':'phone-caught.png')});
-  console.log(`PASS ${id}: touch revolve, changing cell, stationary catch, drag again, cancel, fixed reticle/altitude`);
+  console.log(`PASS ${id}: quick flick, quick-tap catch, touch revolve, changing cell, stationary catch, drag again, cancel, fixed reticle/altitude`);
  }
  const cell=(await state()).published.cell;
  await el('spin-mode').tap();await frames(3);assert.equal((await state()).published.cell,cell,'Mode switch changed the target');

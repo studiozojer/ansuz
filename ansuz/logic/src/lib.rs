@@ -106,6 +106,8 @@ impl Game for Ansuz {
     fn actions() -> Actions {
         Actions::new()
             .stick("move", Stick::wasd().or_arrows())
+            .button("orbit-contact", &["MouseLeft"])
+            .button_touch("orbit-contact", Region::All)
             .button("recenter", &["Home"])
             .button("west", &[])
             .button("east", &[])
@@ -181,9 +183,19 @@ impl Game for Ansuz {
             n.velocity = Vec2::ZERO;
         }
         let p = input.pointer();
+        let began = input.pressed("orbit-contact");
+        let ended = input.released("orbit-contact");
         let down = p.is_some_and(|p| p.down && p.press_origin.is_some());
+        let released_primary =
+            ended && (began || n.down) && p.is_some_and(|p| p.press_origin.is_some());
         let mut movement = Vec2::ZERO;
-        if down {
+        // Edges survive a complete gesture between ticks. Catch a new contact
+        // even when it has already lifted (or been cancelled) by this update.
+        if began {
+            n.velocity = Vec2::ZERO;
+            n.quiet = 0.;
+        }
+        if down || released_primary {
             let p = p.unwrap();
             if !n.down || n.pointer != p.id {
                 n.velocity = Vec2::ZERO;
@@ -192,16 +204,23 @@ impl Game for Ansuz {
             n.quiet += dt;
             // Touch Down is independent of mouse buttons. A stationary finger
             // must stop drift immediately, without needing recognition slop.
-            if p.delta.length_squared() > 0. {
+            // On a new contact, use its own travel, excluding earlier hover
+            // motion in the same tick. Include the terminal sample before Up.
+            let delta = if began {
+                p.position - p.press_origin.unwrap()
+            } else {
+                p.delta
+            };
+            if delta.length_squared() > 0. {
                 let sensitivity = 0.45 / input.viewport().y.max(240.);
-                movement = p.delta * sensitivity;
+                movement = delta * sensitivity;
                 n.velocity = (movement / n.quiet.max(dt)).clamp_length_max(0.7);
                 n.quiet = 0.;
             } else if n.quiet > 0.075 {
                 n.velocity = Vec2::ZERO;
             }
             n.pointer = p.id;
-        } else if n.down && p.is_none_or(|p| p.press_origin.is_none()) {
+        } else if (n.down || ended) && p.is_none_or(|p| p.press_origin.is_none()) {
             n.velocity = Vec2::ZERO;
         } else if !args.reduced_motion {
             let decay = math::exp(-5.5 * dt);
