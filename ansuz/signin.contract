@@ -1,0 +1,10 @@
+// Adapted from Jera foundation/app/signin.contract (67092b6).
+// Exact owns popover dismissal and focus mechanics; Ansuz keeps its grayscale surface.
+style AccountRow
+  background-color = "#202020"
+  :hover
+    background-color = "#303030"
+  :focus-visible
+    background-color = "#353535"
+  :active
+    background-color = "#404040"

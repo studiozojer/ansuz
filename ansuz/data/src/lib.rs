@@ -5,6 +5,7 @@ use exact_runner::{Answer, DataError, DataSource, Outcome, Store, Value};
 use serde_json::{json, Value as Json};
 use std::collections::BTreeSet;
 
+mod accounts;
 mod cloud;
 mod gestures;
 
@@ -226,6 +227,8 @@ impl DataSource for AppData {
     }
 
     fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
+        if source == "loginInput" { return Ok(accounts::login_input(args)); }
+        if source == "lookupAccounts" { return Ok(accounts::empty(args, true)); }
         if cloud::Cloud::owns(source) {
             return Ok(self.cloud.query(source));
         }
@@ -248,6 +251,8 @@ impl DataSource for AppData {
         source: &str,
         args: &[Value],
     ) -> Result<Answer, DataError> {
+        if source == "loginInput" { return Ok(Answer::Now(accounts::login_input(args))); }
+        if source == "lookupAccounts" { return Ok(accounts::answer(args)); }
         if cloud::Cloud::owns(source) {
             return Ok(self.cloud.answer(
                 store,
@@ -316,6 +321,7 @@ impl DataSource for AppData {
         args: &[Value],
         outcome: Outcome,
     ) -> Result<Answer, DataError> {
+        if source == "lookupAccounts" { return Ok(Answer::Now(accounts::parse(args, outcome))); }
         if cloud::Cloud::owns(source) {
             return Ok(self
                 .cloud
