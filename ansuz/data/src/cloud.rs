@@ -1,4 +1,4 @@
-//! Explicit archival sync: the local take file is the durable upload queue.
+//! Account archival: queue state and source bytes persist in the local take file.
 //! Snapback stores immutable files/history; this is not a device replica.
 use super::*;
 use exact_runner::Request;
@@ -84,6 +84,7 @@ enum Step {
     Upload(Json),
     Archive,
     Confirm,
+    VerifyExisting,
     History(bool),
     Access,
     Share,
@@ -473,6 +474,20 @@ impl Cloud {
             _=>Err("Cannot reach recording storage. Device takes remain saved; Sync retries safely.".into()),
         }
         })();
+        if matches!(step, Step::VerifyExisting) {
+            return match result {
+                Ok(bytes) if format!("{:x}", Sha256::digest(&bytes)) == self.current_digest => {
+                    if !self.confirmed.contains(&self.current_digest) {
+                        self.confirmed.push(self.current_digest.clone());
+                    }
+                    self.advance()
+                }
+                _ => self.fail_for(
+                    source,
+                    "Existing archive bytes could not be verified. Device take remains queued.",
+                ),
+            };
+        }
         if let Step::Download(key) = step {
             return Answer::Now(match result {
                 Ok(bytes) => match String::from_utf8(bytes) {
@@ -555,10 +570,24 @@ impl Cloud {
                     {
                         return self.fail_for(source, "Invalid upload confirmation.");
                     }
-                    if !self.confirmed.contains(&self.current_digest) {
-                        self.confirmed.push(self.current_digest.clone());
+                    let asset = s(&j["data"]["trace"], "id");
+                    if asset.is_empty()
+                        || !asset
+                            .chars()
+                            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+                    {
+                        return self.fail_for(source, "Invalid archived file reference.");
                     }
-                    return self.advance();
+                    self.pending = Some(Step::VerifyExisting);
+                    return Answer::Later(
+                        Request::get(&format!("{ORIGIN}/assets/{asset}"))
+                            .header(
+                                "authorization",
+                                &format!("Bearer {}", s(self.session.as_ref().unwrap(), "token")),
+                            )
+                            .independent_http(2097152)
+                            .timeout(30000),
+                    );
                 }
                 let text = take["trace"].to_string();
                 self.pending = Some(Step::Upload(take));
@@ -639,7 +668,9 @@ impl Cloud {
                 Answer::Now(self.view())
             }
             Step::Share => self.request("/q/access", json!({"args":{}}), Step::Access),
-            Step::Download(_) | Step::Browser(_) | Step::Logout => unreachable!(),
+            Step::VerifyExisting | Step::Download(_) | Step::Browser(_) | Step::Logout => {
+                unreachable!()
+            }
         }
     }
 }
@@ -893,6 +924,26 @@ mod tests {
         assert!(s.get(SECRET).is_none());
     }
     #[test]
+    fn corrupt_existing_archive_is_not_confirmed() {
+        let (mut c, mut store) = signed(A);
+        c.pending = Some(Step::VerifyExisting);
+        c.pending_key = "verify".into();
+        c.current_digest = digest("original");
+        let answer = c.parse(
+            &mut store,
+            "verify",
+            "syncRecordings",
+            Outcome::Response(Response {
+                status: 200,
+                headers: vec![],
+                body: b"corrupted".to_vec(),
+            }),
+        );
+        assert!(matches!(answer, Answer::Now(_)));
+        assert!(c.confirmed.is_empty());
+        assert!(c.error.contains("verified"));
+    }
+    #[test]
     fn uncertain_archive_outcome_checks_existing_content_after_restart() {
         let (mut c, mut s) = signed(A);
         let takes = vec![
@@ -923,12 +974,25 @@ mod tests {
         c.answer(&mut s, "syncRecordings", &[Value::Number(2.)], Some(takes));
         reply(&mut c, &mut s, json!({"session":session(A)}));
         let receipt_digest = c.current_digest.clone();
+        let trace_text = json!({"frames":[[0]],"expected":"Earth"}).to_string();
         assert!(request(reply(
             &mut c,
             &mut s,
-            json!({"data":{"id":"stored","owner":A,"digest":receipt_digest},"complete":true})
+            json!({"data":{"id":"stored","owner":A,"digest":receipt_digest,"trace":{"id":"storedfile"}},"complete":true})
         ))
         .url
-        .ends_with("/q/history"));
+        .ends_with("/assets/storedfile"));
+        let pending = c.pending_key.clone();
+        let result = c.parse(
+            &mut s,
+            &pending,
+            "syncRecordings",
+            Outcome::Response(Response {
+                status: 200,
+                headers: vec![],
+                body: trace_text.into_bytes(),
+            }),
+        );
+        assert!(request(result).url.ends_with("/q/history"));
     }
 }
