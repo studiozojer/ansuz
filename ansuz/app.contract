@@ -3,7 +3,23 @@ shape Media
 
 fn bounded(value: number, port: number, size: number): number = min(max(value, 0 - max(0, (port - size) / 2 - 12)), max(0, (port - size) / 2 - 12))
 
+shape OrbitHud
+  cell: string
+  mode: string
+  motion: string
+  altitude: number
+
 component Ansuz
+  state study = "orbit"
+  state orbitMode = 0
+  state orbitHome = 0
+  resource orbit = exactSurface("world") as shape OrbitHud
+  action showStudy(next: string)
+    study = next
+  action orbitChoose(next: number)
+    orbitMode = next
+  action orbitReset
+    orbitHome = orbitHome + 1
   resource media = exactViewport() as shape Media
   state mode = "drag"
   state x = 0
@@ -41,50 +57,100 @@ component Ansuz
     x = bounded(x + dx, portW, 176 * zoom)
     y = bounded(y + dy, portH, 216 * zoom)
   view
-    column width="100%" height="100%" box-sizing="border-box" padding-top="env(safe-area-inset-top, 0px)" padding-bottom="env(safe-area-inset-bottom, 0px)" background-color="#0d0f11" color="#e5e7e8" color-scheme="dark" accent-color="#b8d8d5"
-      row padding="16px 20px" gap=12 align-items="center" justify-content="space-between" flex-shrink=0
-        column gap=4
-          text "ANSUZ" letter-spacing="0.22em" font-size=16 font-weight=600
-          text "Interaction playground" font-size=12 color="#969ea4"
-        button press=reset testId="reset" aria-label="Reset the sample object" min-width=64 min-height=44 padding=10 border-radius=12 background-color="#23282c"
-          text "Reset"
-      row padding="0px 20px 12px" gap=6 flex-shrink=0
-        button press=choose("drag") testId="mode-drag" aria-pressed=(mode == "drag") flex=1 min-height=44 padding=10 border-radius=12 background-color=(mode == "drag" ? "#b8d8d5" : "#1a1f23") color=(mode == "drag" ? "#101617" : "#afb7bd")
-          text "Drag"
-        button press=choose("glide") testId="mode-glide" aria-pressed=(mode == "glide") flex=1 min-height=44 padding=10 border-radius=12 background-color=(mode == "glide" ? "#b8d8d5" : "#1a1f23") color=(mode == "glide" ? "#101617" : "#afb7bd")
-          text "Glide"
-        button press=choose("spring") testId="mode-spring" aria-pressed=(mode == "spring") flex=1 min-height=44 padding=10 border-radius=12 background-color=(mode == "spring" ? "#b8d8d5" : "#1a1f23") color=(mode == "spring" ? "#101617" : "#afb7bd")
-          text "Spring"
-      text instruction testId="instruction" padding="0px 20px 12px" font-size=14 color="#afb7bd" text-align="center" flex-shrink=0
-      box testId="stage" position="relative" flex=1 min-height=160 margin="0px 12px" overflow="hidden" border-radius=20 background-color="#121619" display="flex" align-items="center" justify-content="center"
-        box position="absolute" top=0 bottom=0 left="50%" width=1 background-color="#242b30" pointer-events="none"
-        box position="absolute" left=0 right=0 top="50%" height=1 background-color="#242b30" pointer-events="none"
-        text "01 / TOUCH STUDY" position="absolute" top=16 left=16 font-size=10 letter-spacing="0.12em" color="#78858e" pointer-events="none"
-        box id="manipulation" testId="manipulation" position="absolute" left=0 top=0 width="100%" height="100%" box-sizing="border-box" padding=0 border-width=0 translate=`${x}px ${y}px` scale=zoom transition=motion display="flex" align-items="center" justify-content="center"
-          box testId="sample" width=176 height=216 flex-shrink=0 position="relative"
-            column position="absolute" inset=0 padding=20 box-sizing="border-box" justify-content="space-between" border-radius=18 border-style="solid" border-width=2 border-color=(selected ? "#d9bb75" : "#708d91") background-color=(selected ? "#292820" : "#213034") pointer-events="none"
-              row justify-content="space-between" align-items="center"
-                text "ANSUZ / 01" font-size=10 letter-spacing="0.1em" color="#b7c8c9"
-                box width=6 height=6 border-radius=3 background-color=(selected ? "#d9bb75" : "#b8d8d5")
-              column gap=8
-                text "A beginning" font-size=22 font-weight=600
-                text "An object, wherever you put it." font-size=13 line-height="18px" color="#b7c8c9"
-              text (selected ? "SELECTED" : "TAP TO SELECT") font-size=10 letter-spacing="0.12em" color=(selected ? "#e4c881" : "#b7c8c9")
-            box testId="handle" transformDragFor="manipulation" transformgeometry=geometry transformrelease=release press=select touch-action="none" position="absolute" inset=0 aria-label="Sample object. Tap to select, drag to move, pinch to resize." role="button" tabindex=0
-      column padding="12px 16px 16px" gap=10 flex-shrink=0 align-items="center"
-        text (selected ? "Selected · pinch to resize" : "Drag the card · pinch to resize") testId="selection" font-size=13 color="#b7c2c8"
-        row gap=6 align-items="center" justify-content="center" flex-wrap="wrap"
-          button press=resize(-0.15) testId="zoom-out" aria-label="Make the object smaller" min-width=44 min-height=44 border-radius=10 background-color="#1a1f23"
-            text "−"
-          text `${round(zoom * 100)}%` testId="zoom" width=48 text-align="center" font-size=12
-          button press=resize(0.15) testId="zoom-in" aria-label="Make the object larger" min-width=44 min-height=44 border-radius=10 background-color="#1a1f23"
-            text "+"
-          button press=nudge(-24, 0) testId="left" aria-label="Move left" min-width=44 min-height=44 border-radius=10
-            text "←"
-          button press=nudge(0, -24) testId="up" aria-label="Move up" min-width=44 min-height=44 border-radius=10
-            text "↑"
-          button press=nudge(0, 24) testId="down" aria-label="Move down" min-width=44 min-height=44 border-radius=10
-            text "↓"
-          button press=nudge(24, 0) testId="right" aria-label="Move right" min-width=44 min-height=44 border-radius=10
-            text "→"
-        text (media.prefersReducedMotion ? "Reduced motion · no glide or spring animation" : "A sample to play with. Reset whenever you like.") testId="motion-preference" font-size=11 color="#78858e" text-align="center"
+    main width="100%" height="100%"
+      if study == "touch"
+        column width="100%" height="100%" box-sizing="border-box" padding-top="env(safe-area-inset-top, 0px)" padding-bottom="env(safe-area-inset-bottom, 0px)" background-color="#0d0f11" color="#e5e7e8" color-scheme="dark" accent-color="#b8d8d5"
+          row padding="16px" gap=8 align-items="center" justify-content="space-between" flex-shrink=0
+            column gap=4
+              text "ANSUZ" letter-spacing="0.22em" font-size=16 font-weight=600
+              text "Interaction playground" font-size=12 color="#969ea4"
+            button press=showStudy("orbit") testId="orbit-study" min-width=64 min-height=44 padding=10 border-radius=12 background-color="#23282c"
+              text "Orbit"
+            button press=reset testId="reset" aria-label="Reset the sample object" min-width=64 min-height=44 padding=10 border-radius=12 background-color="#23282c"
+              text "Reset"
+          row padding="0px 20px 12px" gap=6 flex-shrink=0
+            button press=choose("drag") testId="mode-drag" aria-pressed=(mode == "drag") flex=1 min-height=44 padding=10 border-radius=12 background-color=(mode == "drag" ? "#b8d8d5" : "#1a1f23") color=(mode == "drag" ? "#101617" : "#afb7bd")
+              text "Drag"
+            button press=choose("glide") testId="mode-glide" aria-pressed=(mode == "glide") flex=1 min-height=44 padding=10 border-radius=12 background-color=(mode == "glide" ? "#b8d8d5" : "#1a1f23") color=(mode == "glide" ? "#101617" : "#afb7bd")
+              text "Glide"
+            button press=choose("spring") testId="mode-spring" aria-pressed=(mode == "spring") flex=1 min-height=44 padding=10 border-radius=12 background-color=(mode == "spring" ? "#b8d8d5" : "#1a1f23") color=(mode == "spring" ? "#101617" : "#afb7bd")
+              text "Spring"
+          text instruction testId="instruction" padding="0px 20px 12px" font-size=14 color="#afb7bd" text-align="center" flex-shrink=0
+          box testId="stage" position="relative" flex=1 min-height=160 margin="0px 12px" overflow="hidden" border-radius=20 background-color="#121619" display="flex" align-items="center" justify-content="center"
+            box position="absolute" top=0 bottom=0 left="50%" width=1 background-color="#242b30" pointer-events="none"
+            box position="absolute" left=0 right=0 top="50%" height=1 background-color="#242b30" pointer-events="none"
+            text "01 / TOUCH STUDY" position="absolute" top=16 left=16 font-size=10 letter-spacing="0.12em" color="#78858e" pointer-events="none"
+            box id="manipulation" testId="manipulation" position="absolute" left=0 top=0 width="100%" height="100%" box-sizing="border-box" padding=0 border-width=0 translate=`${x}px ${y}px` scale=zoom transition=motion display="flex" align-items="center" justify-content="center"
+              box testId="sample" width=176 height=216 flex-shrink=0 position="relative"
+                column position="absolute" inset=0 padding=20 box-sizing="border-box" justify-content="space-between" border-radius=18 border-style="solid" border-width=2 border-color=(selected ? "#d9bb75" : "#708d91") background-color=(selected ? "#292820" : "#213034") pointer-events="none"
+                  row justify-content="space-between" align-items="center"
+                    text "ANSUZ / 01" font-size=10 letter-spacing="0.1em" color="#b7c8c9"
+                    box width=6 height=6 border-radius=3 background-color=(selected ? "#d9bb75" : "#b8d8d5")
+                  column gap=8
+                    text "A beginning" font-size=22 font-weight=600
+                    text "An object, wherever you put it." font-size=13 line-height="18px" color="#b7c8c9"
+                  text (selected ? "SELECTED" : "TAP TO SELECT") font-size=10 letter-spacing="0.12em" color=(selected ? "#e4c881" : "#b7c8c9")
+                box testId="handle" transformDragFor="manipulation" transformgeometry=geometry transformrelease=release press=select touch-action="none" position="absolute" inset=0 aria-label="Sample object. Tap to select, drag to move, pinch to resize." role="button" tabindex=0
+          column padding="12px 16px 16px" gap=10 flex-shrink=0 align-items="center"
+            text (selected ? "Selected · pinch to resize" : "Drag the card · pinch to resize") testId="selection" font-size=13 color="#b7c2c8"
+            row gap=6 align-items="center" justify-content="center" flex-wrap="wrap"
+              button press=resize(-0.15) testId="zoom-out" aria-label="Make the object smaller" min-width=44 min-height=44 border-radius=10 background-color="#1a1f23"
+                text "−"
+              text `${round(zoom * 100)}%` testId="zoom" width=48 text-align="center" font-size=12
+              button press=resize(0.15) testId="zoom-in" aria-label="Make the object larger" min-width=44 min-height=44 border-radius=10 background-color="#1a1f23"
+                text "+"
+              button press=nudge(-24, 0) testId="left" aria-label="Move left" min-width=44 min-height=44 border-radius=10
+                text "←"
+              button press=nudge(0, -24) testId="up" aria-label="Move up" min-width=44 min-height=44 border-radius=10
+                text "↑"
+              button press=nudge(0, 24) testId="down" aria-label="Move down" min-width=44 min-height=44 border-radius=10
+                text "↓"
+              button press=nudge(24, 0) testId="right" aria-label="Move right" min-width=44 min-height=44 border-radius=10
+                text "→"
+            text (media.prefersReducedMotion ? "Reduced motion · no glide or spring animation" : "A sample to play with. Reset whenever you like.") testId="motion-preference" font-size=11 color="#78858e" text-align="center"
+      else
+        column width="100%" height="100%" box-sizing="border-box" padding-top="env(safe-area-inset-top, 0px)" padding-bottom="env(safe-area-inset-bottom, 0px)" background-color="#0d0d0d" color="#e7e7e7" color-scheme="dark" accent-color="#dddddd"
+          row padding="16px" gap=8 align-items="center" justify-content="space-between" flex-shrink=0
+            column gap=4
+              text "ANSUZ" letter-spacing="0.22em" font-size=16 font-weight=600
+              text "Orbital playground" font-size=12 color="#9e9e9e"
+            button press=showStudy("touch") testId="touch-study" min-height=44 padding=10 border-radius=12 background-color="#232323" aria-label="Open the original touch playground"
+              text "2D study"
+            button press=orbitReset testId="orbit-reset" min-height=44 padding=10 border-radius=12 background-color="#232323" aria-label="Reset orbital orientation"
+              text "Reset"
+          row padding="0px 20px 12px" gap=6 flex-shrink=0
+            button press=orbitChoose(0) testId="spin-mode" aria-pressed=(orbitMode == 0) flex=1 min-height=44 padding=10 border-radius=12 background-color=(orbitMode == 0 ? "#dddddd" : "#1e1e1e") color=(orbitMode == 0 ? "#111111" : "#b7b7b7")
+              text "Spin sphere"
+            button press=orbitChoose(1) testId="fly-mode" aria-pressed=(orbitMode == 1) flex=1 min-height=44 padding=10 border-radius=12 background-color=(orbitMode == 1 ? "#dddddd" : "#1e1e1e") color=(orbitMode == 1 ? "#111111" : "#b7b7b7")
+              text "Fly camera"
+          text (orbitMode == 0 ? "Turn the sphere beneath a still camera." : "Travel at a fixed height above the sphere.") testId="orbit-instruction" padding="0px 20px 12px" font-size=14 color="#b0b0b0" text-align="center" flex-shrink=0
+          box testId="orbit-stage" position="relative" flex=1 min-height=180 margin="0px 12px" overflow="hidden" border-radius=20 background-color="#0b0b0b"
+            canvas surface=world(mode=orbitMode, home=orbitHome, reduced_motion=media.prefersReducedMotion) testId="world" width="100%" height="100%" position="absolute" inset=0 touch-action="none" aria-label="Wireframe sphere. Drag to revolve. Arrow keys or directional buttons also move the view." tabindex=0
+              row position="absolute" left=16 right=16 top=16 justify-content="space-between" pointer-events="none"
+                text "02 / ORBIT STUDY" font-size=10 letter-spacing="0.12em" color="#969696"
+                text orbit.motion testId="orbit-motion" font-size=10 letter-spacing="0.08em" color="#b0b0b0"
+              row position="absolute" bottom=14 left=0 right=0 gap=6 justify-content="center"
+                button action="west" testId="orbit-west" min-width=44 min-height=44 border-radius=10 background-color="#202020" aria-label="Revolve west"
+                  text "←"
+                button action="north" testId="orbit-north" min-width=44 min-height=44 border-radius=10 background-color="#202020" aria-label="Revolve north"
+                  text "↑"
+                button action="south" testId="orbit-south" min-width=44 min-height=44 border-radius=10 background-color="#202020" aria-label="Revolve south"
+                  text "↓"
+                button action="east" testId="orbit-east" min-width=44 min-height=44 border-radius=10 background-color="#202020" aria-label="Revolve east"
+                  text "→"
+            box testId="reticle" position="absolute" left="50%" top="50%" width=0 height=0 pointer-events="none"
+              box position="absolute" left=-11 top=-1 width=7 height=2 background-color="#ffffff"
+              box position="absolute" left=4 top=-1 width=7 height=2 background-color="#ffffff"
+              box position="absolute" left=-1 top=-11 width=2 height=7 background-color="#ffffff"
+              box position="absolute" left=-1 top=4 width=2 height=7 background-color="#ffffff"
+              box position="absolute" left=-1 top=-1 width=2 height=2 background-color="#ffffff"
+          column padding="14px 20px 18px" gap=8 flex-shrink=0
+            row justify-content="space-between" align-items="center" gap=8
+              column gap=4
+                text "UNDER THE CURSOR" font-size=10 letter-spacing="0.1em" color="#898989"
+                text orbit.cell testId="orbit-cell" font-variant-numeric="tabular-nums" font-size=19 font-weight=500
+              column gap=4 align-items="flex-end"
+                text "ALTITUDE / LOCKED" font-size=10 letter-spacing="0.1em" color="#898989"
+                text `${round(orbit.altitude * 10) / 10} UNITS` testId="orbit-altitude" font-variant-numeric="tabular-nums" font-size=11 color="#b7b7b7"
+            text orbit.mode testId="orbit-state" font-size=12 color="#aaaaaa"
+            text (media.prefersReducedMotion ? "Drag to revolve · reduced motion, no drift" : "Drag to revolve · lift to drift · touch to catch") testId="orbit-help" font-size=12 color="#aaaaaa"

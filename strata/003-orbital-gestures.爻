@@ -1,0 +1,17 @@
+---
+id: ansuz/strata/003-orbital-gestures
+title: "Two ways to revolve through a spherical grid"
+captured: 2026-10-31
+baseline: 4b4f193
+description: "Adds an orbital study while retaining the tested 2D playground."
+edges:
+  - target: ansuz/strata/002-interaction-playground
+    type: follows
+    note: "The original card interactions remain available for comparison."
+---
+
+David asked for two experiments: spinning a sphere with a fixed camera, and moving the camera around a sphere at a fixed atmospheric height. A screen-fixed cursor should highlight the cell moving beneath it. He supplied an orbital Earth image for perspective, then specified a wireframe, greyscale debug style using the established playground design language and good typography.
+
+The implementation uses the same cubed-sphere coordinates and relative view in both modes, but different actual camera/object transforms. A cell address describes a location in a projection; it is not a new reading or provenance root. The grid is synthetic, selection is not implemented, and no existing notes are loaded or migrated. The study retains constant altitude, a local horizon and a fixed reticle through full rotations.
+
+The 2D playground remains available. This checkpoint adds another way to test navigation without replacing the underlying record model or treating the spatial metaphor as canonical data structure. Verification and native-install status are recorded in the README and PR.

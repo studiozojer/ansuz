@@ -20,7 +20,7 @@ try {
  const tap=async id=>{await el(id).tap();await frames();};
  const reset=async()=>{await tap('reset');return settled();};
  const drag=async(dx,dy,end='touchEnd')=>{const p=center(await box());await touches('touchStart',[p]);await frames();for(let i=1;i<=12;i++){await touches('touchMove',[{x:p.x+dx*i/12,y:p.y+dy*i/12}]);await frames();}await touches(end,[]);await frames();};
- await page.goto(url);await el('handle').waitFor();await frames(4);
+ await page.goto(url);await el('touch-study').tap();await el('handle').waitFor();await frames(4);
  await page.screenshot({path:resolve(out,'phone-start.png')});
  const initial=await box();
  await el('handle').tap();await frames();assert.match(await el('selection').innerText(),/^Selected/);
