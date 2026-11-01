@@ -51,13 +51,13 @@ searchAccounts: async query => {
 },
 fetcher: async (url, options) => {
   if (options.headers.authorization === 'Bearer fixture-only') {
-    const token = execFileSync(`${root}node_modules/.bin/snapback4`, ['token', '--service', 'test-auth'], { cwd: directory, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+    const token = execFileSync(`${root}node_modules/.bin/snapback4`, ['token', '--service', 'atproto-auth'], { cwd: directory, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
     options.headers.authorization = `Bearer ${token}`;
   }
   return fetch(url, options);
 } });
 const server = createServer(async (req, res) => {
-  if (req.url.startsWith('/oauth/') || req.url === '/auth/refresh') {
+  if (req.url.startsWith('/oauth/') || req.url === '/auth/refresh' || req.url === '/m/archive') {
     // Discovery runs before /oauth/start. Admit only the ephemeral loopback
     // test carrier here; production keeps its explicit callback allowlist.
     if (typeof req.headers.origin === 'string') {

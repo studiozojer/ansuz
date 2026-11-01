@@ -19,13 +19,13 @@ if not PROBE.exists():
     principal='did:web:restore-check.invalid'
     # Synthetic evidence belongs to this probe account, never the user's library.
     session=post(origin,'/auth/session',{'principal':principal,'days':1},service_token)['session']
-    trace=json.dumps({'schema':'ansuz.gesture-take','version':3,'hz':120,'expected':'Synthetic restore proof','frames':[[0]*22 for _ in range(2400)]},separators=(',',':')).encode()
+    trace=json.dumps({'schema':'ansuz.gesture-take','version':3,'hz':120,'expected':'Synthetic restore proof','element':3,'element_model':'ansuz.elements/1','viewport':[390,500],'mode':0,'reduced_motion':False,'initial':{'orientation':[0,0,0,1],'velocity':[0,0],'position':[0,0],'down':False,'pointer':0,'quiet':0},'observed':[],'frames':[[0,0,False,0,0,0,0,0,0,0,0,0,1,0,0,390,500,False,0,0,0,0] for _ in range(2400)]},separators=(',',':')).encode()
     req=urllib.request.Request(origin+'/assets?as=file&name=restore-proof.json',data=trace,headers={'Authorization':'Bearer '+session['token'],'Content-Type':'application/json'},method='POST')
     with urllib.request.urlopen(req) as r: asset=json.load(r)['asset']
     digest=hashlib.sha256(trace).hexdigest()
-    args={'digest':digest,'label':'Synthetic restore proof','expected':'Synthetic restore proof','element':3,'captured':int(time.time()*1000),'frames':2400,'model':'restore-proof/1','trace':{'id':asset['id']}}
-    row=post(origin,'/m/archive',{'id':secrets.token_hex(16),'args':args},session['token'])['result']
-    PROBE.write_text(json.dumps({'owner':session['principal'],'digest':digest,'asset':asset['id'],'recording':row['id']}))
+    args={'digest':digest,'label':'Synthetic restore proof','expected':'Synthetic restore proof','element':3,'captured':0,'frames':2400,'model':'ansuz.elements/1','trace':{'id':asset['id']}}
+    row=post('http://127.0.0.1:4433','/m/archive',{'id':secrets.token_hex(16),'args':args},session['token'])['result']
+    PROBE.write_text(json.dumps({'owner':session['principal'],'digest':digest,'asset':row['trace']['id'],'recording':row['id']}))
     PROBE.chmod(0o600)
 probe=json.loads(PROBE.read_text())
 subprocess.run(['systemctl','start','ansuz-recordings-backup.service'],check=True)

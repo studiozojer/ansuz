@@ -12,6 +12,7 @@ await new Promise((yes,no)=>{const timer=setTimeout(()=>no(Error(logs)),30000);s
 const browser=await chromium.launch({headless:true,executablePath:chromium.executablePath(),args:['--enable-unsafe-webgpu','--no-sandbox','--use-mock-keychain','--password-store=basic']});let page,releaseAsset,releaseSearch;
 try{
  const context=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true});
+ let blockUploads=false,dropArchiveAck=false,droppedAcks=0;
  let offline=false,holdAsset=false,assetRequested,holdSearch=false,searchRequested;
  let searches=0,authorizations=0;
  context.on('requestfailed',r=>console.log('request failed',new URL(r.url()).pathname,r.failure()?.errorText));
@@ -22,8 +23,9 @@ try{
   const request=route.request();const url=new URL(request.url());
   if(url.pathname==='/oauth/accounts'){searches++;assert.equal(request.headers().authorization,undefined);}
   if(url.pathname==='/oauth/start')authorizations++;
-  if(offline)return route.abort();
+  if(offline || (blockUploads && request.method()==='POST' && url.pathname==='/assets'))return route.abort();
   const response=await route.fetch({url:'http://127.0.0.1:4435'+url.pathname+url.search,maxRedirects:0});
+  if(dropArchiveAck && url.pathname==='/m/archive' && response.ok()){dropArchiveAck=false;droppedAcks++;return route.abort();}
   // Hold an already-authorized success, not a request the server can reject after logout.
   if(holdAsset&&url.pathname.startsWith('/assets/')){assert.equal(response.status(),200);await new Promise(r=>{releaseAsset=r;assetRequested?.()});}
   if(holdSearch&&url.pathname==='/oauth/accounts'&&request.postDataJSON().query==='ow'){await new Promise(r=>{releaseSearch=r;searchRequested?.()});}
@@ -68,7 +70,15 @@ try{
  await button('Sign out').tap();await el('cloud-login').waitFor();await emptyReplay();
  await login('other');await el('cloud-sync').tap();await settled();assert.equal(await button('Load for replay').count(),0);
  await button('Device').tap();assert.equal(await page.getByText(/Take 1 ·/).count(),0);assert.equal(await el('unassigned-takes').count(),0,'A-owned takes cannot be reclaimed by B');
- await el('lab-library').tap();await record('Private account B Earth take.');await library();await el('cloud-sync').tap();await button('Load for replay').waitFor();
+ await el('lab-library').tap();blockUploads=true;await record('Private account B Earth take.');await library();
+ await page.reload();await enter();await library();await el('account-did').waitFor();await button('Device').tap();await page.getByText(/Take 2 ·/).waitFor();await page.getByText('Waiting to upload',{exact:true}).waitFor();
+ await el('cloud-tab').tap();await button('Sign out').tap();await el('cloud-login').waitFor();await login('owner');assert.equal(await page.getByText('Private account B Earth take.').count(),0);
+ await button('Sign out').tap();await el('cloud-login').waitFor();await login('other');
+ blockUploads=false;dropArchiveAck=true;await page.reload();await enter();await library();
+ for(let i=0;i<100 && droppedAcks===0;i++)await page.waitForTimeout(200);assert.equal(droppedAcks,1,'server committed but upload acknowledgement was lost');
+ await page.reload();await enter();await library();await button('Load for replay').waitFor();assert.equal(await button('Load for replay').count(),1,'resume reconciles the existing archive without duplicating it');
+ await button('Device').tap();await page.getByText('Confirmed in cloud',{exact:true}).waitFor();await el('cloud-tab').tap();
+ console.log('PASS upload queue: restart during failed upload, account switch, lost acknowledgement, automatic confirmation without manual Sync');
  await button('Sign out').tap();await el('cloud-login').waitFor();await login('owner');await el('cloud-sync').tap();await button('Load for replay').waitFor();assert.equal(await page.getByText('Private account B Earth take.').count(),0);await settled();
  await page.reload();await enter();await library();await el('account-did').waitFor();assert((await el('account-did').innerText()).endsWith('a'.repeat(24)));await el('cloud-sync').tap();await button('Load for replay').waitFor();
  holdAsset=true;const assetStarted=new Promise(r=>assetRequested=r);await button('Load for replay').tap();await Promise.race([assetStarted,new Promise((_,reject)=>setTimeout(()=>reject(Error('asset download never started')),5000))]);await button('Sign out').tap();await el('cloud-login').waitFor();releaseAsset?.();await page.waitForTimeout(350);assert.equal((await state()).resources.Lab.frames.length,0,'late download cannot reopen signed-out data');holdAsset=false;

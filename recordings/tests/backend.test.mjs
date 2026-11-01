@@ -6,6 +6,7 @@ import { resolve } from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { once } from 'node:events';
 import { createHash } from 'node:crypto';
+import {archiveHandler} from '../auth/archive.mjs';
 import { RecordingClient, intentId } from '../scripts/client.mjs';
 const root = new URL('../', import.meta.url).pathname;
 async function start(dir) {
@@ -27,6 +28,7 @@ test('real Snapback: immutable trace bytes, retry, private history, read grant, 
  let server=await start(dir);t.after(async()=>{await server?.stop();await rm(dir,{recursive:true,force:true})});
  const owner=await account(server.url,'owner@ansuz.test',dir),agent=await account(server.url,'agent@ansuz.test',dir),other=await account(server.url,'other@ansuz.test',dir);
  const c=owner.client, a=agent.client, o=other.client;
+ let archive=archiveHandler({snapbackOrigin:server.url,serviceToken:execFileSync(resolve(root,'node_modules/.bin/snapback4'),['token','--service','atproto-auth'],{cwd:dir,encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim()});
  assert.equal((await (await fetch(server.url+'/auth/config')).json()).password,false);
  await assert.rejects(new RecordingClient(server.url).request('/auth/signup',{email:'wrong@example.test',password:'not an account'}));
  assert.equal((await c.query('currentIdentity')).data.did,owner.principal);
@@ -34,7 +36,7 @@ test('real Snapback: immutable trace bytes, retry, private history, read grant, 
  await assert.rejects(c.request('/auth/session',{principal:other.principal,days:1}),'ordinary DID bearer must not mint identity');
  const original=JSON.stringify({schema:'ansuz.gesture-take',version:4,hz:120,element:3,element_model:'ansuz.elements/2',viewport:[390,500],mode:0,reduced_motion:false,
  initial:{orientation:[0,0,0,1],velocity:[0,0],position:[0,0],down:false,pointer:0,quiet:0},
- expected:'Hold, then press the earth upward — 土',
+ captured_at_ms:1793500000000,expected:'Hold, then press the earth upward — 土',
  frames:Array.from({length:2400},(_,i)=>[0,0,false,i*.001,0,0,0,0,0,0,0,0,1,0,0,390,500,false,0,0,0,0]),observed:[],
  initial_contacts:[],delivered_columns:['tick','host_event_ms','phase_0_down_1_move_2_up_3_cancel_4_blur','pointer_id','x','y','dx','dy','buttons'],
  delivered:Array.from({length:2000},(_,i)=>[i,1000+i*8.333, i<2?0:i===1998?2:i===1999?3:1,i%2+1,100+i*.001,200+i*.002,0,0,0]),
@@ -42,23 +44,34 @@ test('real Snapback: immutable trace bytes, retry, private history, read grant, 
  assert(original.length>200000);
  const digest=createHash('sha256').update(original).digest('hex');
  const asset=await upload(c,original);
- const args={digest,label:'Earth intention',expected:'Hold, then lift',element:3,captured:1793500000000,frames:2400,model:'ansuz.elements/2',trace:{id:asset.id}};
- const write=intentId();const record=(await c.mutate('archive',args,write)).result;await c.mutate('archive',args,write);
+ const args={digest,label:'Earth intention',expected:'Hold, then press the earth upward — 土',element:3,captured:1793500000000,frames:2400,model:'ansuz.elements/2',trace:{id:asset.id}};
+ const write=intentId();
+ await assert.rejects(c.mutate('archive',{...args,owner:owner.principal}),'direct mutation must be denied');
+ await assert.rejects(archive(c.token,{args:{...args,frames:1}}),'metadata mismatch');
+ await assert.rejects(archive(c.token,{args:{...args,digest:'a'.repeat(64)}}),'digest mismatch');
+ const malformed=await upload(c,'{}');
+ await assert.rejects(archive(c.token,{args:{...args,digest:createHash('sha256').update('{}').digest('hex'),trace:{id:malformed.id}}}),'invalid trace content');
+ for(const damage of [j=>j.frames[0][2]=0,j=>j.delivered[0][2]=1,j=>j.viewport[0]=0,j=>j.version=999]){
+  const j=JSON.parse(original);damage(j);const text=JSON.stringify(j);const bad=await upload(c,text);
+  await assert.rejects(archive(c.token,{args:{...args,digest:createHash('sha256').update(text).digest('hex'),trace:{id:bad.id}}}));
+ }
+ assert.equal((await c.query('history',{owner:owner.principal})).data.length,0,'invalid submissions create no archive rows');
+ const record=(await archive(c.token,{id:write,args})).result;await Promise.all([archive(c.token,{id:write,args}),archive(c.token,{id:write,args})]);
  assert.equal((await c.query('history',{owner:owner.principal})).data.length,1);
  assert.equal((await c.query('findTake',{owner:owner.principal,digest})).data.id,record.id);
  assert.deepEqual((await a.query('history',{owner:owner.principal})).data,[]);
- assert.equal((await download(a,asset.id)).status,404);
+ assert.equal((await download(a,record.trace.id)).status,404);
  await c.mutate('allowReader',{reader:agent.principal});
  assert.equal((await a.query('history',{owner:owner.principal})).data[0].digest,digest);
- assert.equal(await (await download(a,asset.id)).text(),original);
+ assert.equal(await (await download(a,record.trace.id)).text(),original);
  await assert.rejects(a.mutate('archive',args)); // A reader cannot steal/place the owner's asset.
  await a.mutate('allowReader',{reader:other.principal}); // Only shares the agent's own empty library.
  assert.deepEqual((await o.query('history',{owner:owner.principal})).data,[]);
  await c.mutate('removeReader',{reader:agent.principal});
  assert.deepEqual((await a.query('history',{owner:owner.principal})).data,[]);
- assert.equal((await download(a,asset.id)).status,404);
+ assert.equal((await download(a,record.trace.id)).status,404);
  await server.stop();server=await start(dir);for(const client of [c,a,o])client.origin=server.url;
- assert.equal(await (await download(c,asset.id)).text(),original);
+ assert.equal(await (await download(c,record.trace.id)).text(),original);
  assert.equal((await c.query('history',{owner:owner.principal})).data.length,1);
  // A duplicate content key cannot replace original bytes or metadata.
  const replacement=await upload(c,'{"different":true}');await assert.rejects(c.mutate('archive',{...args,trace:{id:replacement.id},expected:'rewritten'}));

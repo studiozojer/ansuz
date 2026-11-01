@@ -16,7 +16,7 @@ table recordings:
   unique owner, digest
   immutable owner, digest, label, expected, element, captured, frames, model, trace, at
   read <- .owner = viewer or exists readers[.owner, viewer]
-  insert <- .owner = viewer
+  insert <- viewer = 'service:atproto-auth'
   online only
 
 table readers:
@@ -30,7 +30,7 @@ table readers:
   online only
 
 invariant recordings.read only .owner = viewer or exists readers[.owner, viewer]
-invariant recordings.insert only .owner = viewer
+invariant recordings.insert only viewer = 'service:atproto-auth'
 invariant readers.read only .owner = viewer or .reader = viewer
 invariant readers.insert only .owner = viewer
 invariant readers.delete only .owner = viewer
@@ -41,8 +41,8 @@ query findTake(owner: principal, digest: text 64..64):
   return recordings[owner, digest]
 query access():
   return readers where .owner = viewer first 100 by .id
-mutation archive(digest: text 64..64, label: text 1..100, expected: text <=1000, element: int 0..4, captured: time, frames: int 1..2400, model: text <=100, trace: file <=2097152 ('application/json')):
-  return insert recordings { owner: viewer, digest, label, expected, element, captured, frames, model, trace }
+mutation archive(owner: principal, digest: text 64..64, label: text 1..100, expected: text <=1000, element: int 0..4, captured: time, frames: int 1..2400, model: text <=100, trace: file <=2097152 ('application/json')):
+  return insert recordings { owner, digest, label, expected, element, captured, frames, model, trace }
 mutation allowReader(reader: principal):
   return insert readers { owner: viewer, reader } if absent
 mutation removeReader(reader: principal):

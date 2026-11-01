@@ -1,3 +1,4 @@
+import { archiveHandler } from './archive.mjs';
 import { TokenRefreshError, TokenRevokedError } from '@atproto/oauth-client-node';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 
@@ -9,16 +10,17 @@ const validNonce = value => typeof value === 'string' && /^[A-Za-z0-9_-]{43}$/.t
 export const validDid = value => typeof value === 'string' && /^did:(plc:[a-z2-7]{24}|web:[A-Za-z0-9._:%-]+)$/.test(value);
 function fail(message = 'Sign-in expired or could not be verified. Start again.', status = 400) { throw Object.assign(new Error(message), { status, ansuzSafe: true }); }
 function cookie(req, name) { return (req.headers.cookie ?? '').split(';').map(s => s.trim()).find(s => s.startsWith(`${name}=`))?.slice(name.length + 1); }
-async function body(req) {
+async function body(req, limit = 4096) {
   if (!req.headers['content-type']?.startsWith('application/json')) fail('Expected JSON.', 415);
   let text = '';
-  for await (const chunk of req) { text += chunk; if (Buffer.byteLength(text) > 4096) fail('Request too large.', 413); }
+  for await (const chunk of req) { text += chunk; if (Buffer.byteLength(text) > limit) fail('Request too large.', 413); }
   try { return JSON.parse(text); } catch { fail('Invalid JSON.'); }
 }
 function json(res, status, value) { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(value)); }
 
 export function createHandler({ client, store, publicOrigin, callbacks, snapbackOrigin, serviceToken, searchAccounts, fetcher = fetch }) {
   const limits = new Map();
+  const archive = archiveHandler({snapbackOrigin, serviceToken, fetcher});
   async function upstream(path, token, payload) {
     const reply = await fetcher(`${snapbackOrigin}${path}`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` }, body: JSON.stringify(payload), signal: AbortSignal.timeout(15000) });
     const data = await reply.json();
@@ -57,6 +59,11 @@ export function createHandler({ client, store, publicOrigin, callbacks, snapback
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST'); res.writeHead(204); return res.end();
     }
     try {
+      if (req.method === 'POST' && url.pathname === '/m/archive') {
+        const token=req.headers.authorization?.match(/^Bearer (.+)$/)?.[1];
+        if(!token) fail('Sign in again.',401);
+        return json(res,200,await archive(token,await body(req,8192)));
+      }
       if (req.method === 'POST' && url.pathname === '/oauth/accounts') {
         const peer = req.headers['x-forwarded-for'] ?? req.socket.remoteAddress;
         const now = Date.now(), key = `search:${peer}`;

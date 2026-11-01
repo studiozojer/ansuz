@@ -30,12 +30,14 @@ shape GestureTake
   label: string
   expected: string
   json: string
+  upload: string
 
 shape GestureTakes
   items: GestureTake[]
   error: string
   ready: bool
   unassigned: GestureTake[]
+  queued: number
 
 shape GestureSaved
   ok: bool
@@ -58,6 +60,7 @@ shape RecordingCloud
   shared: bool
   ready: bool
   principal: string
+  confirmed: string
 
 shape CloudLoaded
   json: string
@@ -185,7 +188,26 @@ component Ansuz
     showDeviceOnly = false
     postMessage("lab:forget", "world")
   action cloudSync
-    send cloudResult = syncRecordings(labTime.epochAtZero + performanceNow())
+    send labSaved = queueGestureTakes("", cloudState.principal)
+    if not pending(cloudResult)
+      send cloudResult = syncRecordings(labTime.epochAtZero + performanceNow())
+  state uploadRetry = 0
+  task restoreHistory when labTakes.ready and cloudState.connected and cloudState.ready key=`${cloudState.principal}:${labTakes.queued}`
+    after(1, retryUploads)
+  task resumeUploads when labTakes.ready and labTakes.queued > 0 and cloudState.connected and cloudState.ready key=cloudState.principal
+    every(15000, retryUploads)
+  action retryUploads
+    uploadRetry = uploadRetry + 1
+    if not pending(cloudResult) and not pending(cloudDownload) and not pending(labSaved)
+      send cloudResult = syncRecordings(labTime.epochAtZero + performanceNow())
+  state receiptAttempt = ""
+  task confirmUploads when receiptAttempt != `${cloudState.principal}:${cloudState.confirmed}:${uploadRetry}` and cloudState.connected and cloudState.confirmed != "[]" and cloudState.confirmed != "" and not pending(labSaved) key=`${cloudState.principal}:${cloudState.confirmed}:${uploadRetry}`
+    after(1, saveUploadReceipts)
+  action saveUploadReceipts
+    receiptAttempt = `${cloudState.principal}:${cloudState.confirmed}:${uploadRetry}`
+    send labSaved = confirmGestureTakes(cloudState.confirmed, cloudState.principal)
+  action pauseUpload(id: string)
+    send labSaved = pauseGestureTake(id, cloudState.principal)
   action cloudMore
     send cloudResult = moreRecordings(labTime.epochAtZero + performanceNow())
   action cloudDisconnect
@@ -460,6 +482,10 @@ component Ansuz
                   for take in labTakes.items key=take.id
                     column padding=12 gap=8 background-color="#191919" border-radius=12
                       text take.label font-size=15 font-weight=500
+                      text (take.upload == "confirmed" ? "Confirmed in cloud" : (take.upload == "queued" ? (pending(cloudResult) ? "Uploading…" : "Waiting to upload") : "Saved on device")) font-size=11 color="#aaaaaa"
+                      if take.upload == "queued"
+                        button press=pauseUpload(take.id) min-height=44 disabled=pending(labSaved) background-color="#252525"
+                          text "Pause upload retries"
                       if take.expected != ""
                         text take.expected font-size=12 color="#aaaaaa"
                       row gap=8

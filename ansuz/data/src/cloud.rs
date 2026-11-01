@@ -71,6 +71,8 @@ pub struct Cloud {
     error: String,
     status: String,
     shared: bool,
+    confirmed: Vec<String>,
+    current_digest: String,
 }
 enum Step {
     Browser(Json),
@@ -81,6 +83,7 @@ enum Step {
     Find(Json),
     Upload(Json),
     Archive,
+    Confirm,
     History(bool),
     Access,
     Share,
@@ -148,6 +151,7 @@ impl Cloud {
                     .map(|j| s(j, "principal"))
                     .unwrap_or_default(),
             ),
+            Value::str(&json!(self.confirmed).to_string()),
         ])
     }
     pub fn query(&self, source: &str) -> Value {
@@ -186,6 +190,7 @@ impl Cloud {
     fn advance(&mut self) -> Answer {
         if let Some(take) = self.queue.pop_front() {
             let key = digest(&take["trace"].to_string());
+            self.current_digest = key.clone();
             self.request(
                 "/q/findTake",
                 json!({"args":{"owner":self.owner(),"digest":key}}),
@@ -298,7 +303,10 @@ impl Cloud {
                 {
                     return self.fail("A take belongs to another account. Nothing was uploaded.");
                 }
-                self.queue = takes.into();
+                self.queue = takes
+                    .into_iter()
+                    .filter(|t| t["upload_state"] == "queued")
+                    .collect();
                 self.status = "Syncing this account's takes…".into();
                 self.request("/auth/refresh", json!({}), Step::Refresh(Next::Sync))
             }
@@ -319,6 +327,8 @@ impl Cloud {
         }
     }
     fn clear(&mut self) {
+        self.confirmed.clear();
+        self.current_digest.clear();
         self.session = None;
         self.pending = None;
         self.queue.clear();
@@ -540,6 +550,14 @@ impl Cloud {
                     return self.fail_for(source, "Cloud lookup was incomplete. Retry Sync.");
                 }
                 if !j["data"].is_null() {
+                    if j["data"]["owner"] != self.owner()
+                        || j["data"]["digest"] != self.current_digest
+                    {
+                        return self.fail_for(source, "Invalid upload confirmation.");
+                    }
+                    if !self.confirmed.contains(&self.current_digest) {
+                        self.confirmed.push(self.current_digest.clone());
+                    }
                     return self.advance();
                 }
                 let text = take["trace"].to_string();
@@ -573,8 +591,27 @@ impl Cloud {
                 if j["state"] != "sent" {
                     self.fail_for(source, "Upload pending; Sync checks before retrying.")
                 } else {
-                    self.advance()
+                    // A successful archive acknowledgement is verified by lookup,
+                    // including the server's final owner/digest binding.
+                    self.request(
+                        "/q/findTake",
+                        json!({"args":{"owner":self.owner(),"digest":self.current_digest}}),
+                        Step::Confirm,
+                    )
                 }
+            }
+            Step::Confirm => {
+                if j["complete"] != true
+                    || j["data"]["owner"] != self.owner()
+                    || j["data"]["digest"] != self.current_digest
+                {
+                    return self
+                        .fail_for(source, "Archive confirmation was incomplete. Retry safely.");
+                }
+                if !self.confirmed.contains(&self.current_digest) {
+                    self.confirmed.push(self.current_digest.clone());
+                }
+                self.advance()
             }
             Step::History(more) => {
                 if j["complete"] != true {
@@ -824,15 +861,34 @@ mod tests {
         let (mut c, mut s) = signed(A);
         c.pending_key = "download".into();
         c.pending = Some(Step::Download(digest("original")));
-        let answer = c.parse(&mut s, "download", "loadCloudTake", Outcome::Response(Response {
-            status: 200, headers: vec![], body: b"changed".to_vec(),
-        }));
-        let Answer::Now(value) = answer else { panic!("expected refusal") };
-        assert_eq!(value, loaded("", "Recording checksum failed. Replay was not loaded."));
+        let answer = c.parse(
+            &mut s,
+            "download",
+            "loadCloudTake",
+            Outcome::Response(Response {
+                status: 200,
+                headers: vec![],
+                body: b"changed".to_vec(),
+            }),
+        );
+        let Answer::Now(value) = answer else {
+            panic!("expected refusal")
+        };
+        assert_eq!(
+            value,
+            loaded("", "Recording checksum failed. Replay was not loaded.")
+        );
         c.pending = Some(Step::Download(digest("original")));
-        c.parse(&mut s, "download", "loadCloudTake", Outcome::Response(Response {
-            status: 401, headers: vec![], body: vec![],
-        }));
+        c.parse(
+            &mut s,
+            "download",
+            "loadCloudTake",
+            Outcome::Response(Response {
+                status: 401,
+                headers: vec![],
+                body: vec![],
+            }),
+        );
         assert!(c.owner().is_empty());
         assert!(s.get(SECRET).is_none());
     }
@@ -840,7 +896,7 @@ mod tests {
     fn uncertain_archive_outcome_checks_existing_content_after_restart() {
         let (mut c, mut s) = signed(A);
         let takes = vec![
-            json!({"owner":A,"label":"Take 1","expected":"Earth","trace":{"frames":[[0]],"expected":"Earth"}}),
+            json!({"owner":A,"upload_state":"queued","label":"Take 1","expected":"Earth","trace":{"frames":[[0]],"expected":"Earth"}}),
         ];
         c.answer(
             &mut s,
@@ -866,10 +922,11 @@ mod tests {
         reply(&mut c, &mut s, json!({"did":A}));
         c.answer(&mut s, "syncRecordings", &[Value::Number(2.)], Some(takes));
         reply(&mut c, &mut s, json!({"session":session(A)}));
+        let receipt_digest = c.current_digest.clone();
         assert!(request(reply(
             &mut c,
             &mut s,
-            json!({"data":{"id":"stored"},"complete":true})
+            json!({"data":{"id":"stored","owner":A,"digest":receipt_digest},"complete":true})
         ))
         .url
         .ends_with("/q/history"));
