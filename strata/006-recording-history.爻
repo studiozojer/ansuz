@@ -1,0 +1,14 @@
+---
+id: ansuz/strata/006-recording-history
+title: "A gesture becomes durable evidence"
+captured: 2026-10-31
+baseline: 326c08f
+edges:
+  - target: ansuz/strata/005-elemental-gestures
+    type: follows
+    note: "A human can demonstrate an intended gesture without conforming to the recognizer."
+---
+
+David asked to record and replay the intended Earth gesture, preserve a history through Snapback, and make the recordings accessible to an agent for designing recognition. He selected the same VPS as Jera with separate endpoints and service data. Ansuz adds explicit archival Sync from its existing local recorder, an authenticated history and replay download, and a revocable studio-agent read grant. The original trace and expected response remain immutable evidence; later interpretations belong to distinct records that cite the original.
+
+This is an Exact HTTP/file adapter to a separate Snapback service, not a device replica or the portable Expo recorder package. Local capture remains available offline. Server history is paginated; file bytes are fetched only for replay or agent analysis and checked against their original digest. The user still judges physical feel. Recover the preceding local-only elemental lab from baseline 326c08f.

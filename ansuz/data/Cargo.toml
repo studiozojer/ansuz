@@ -9,3 +9,4 @@ workspace = "../.shells"
 exact-runner.workspace = true
 exact-data.workspace = true
 serde_json.workspace = true
+sha2 = "0.10"

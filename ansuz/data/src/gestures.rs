@@ -64,6 +64,12 @@ fn validate(j: &Json) -> bool {
         })
 }
 impl Gestures {
+    pub fn takes(&self) -> Option<Vec<Json>> {
+        self.document
+            .as_ref()
+            .and_then(|d| d["takes"].as_array())
+            .cloned()
+    }
     pub fn owns(source: &str) -> bool {
         matches!(
             source,

@@ -1,0 +1,36 @@
+import assert from 'node:assert/strict';
+import {mkdirSync,writeFileSync} from 'node:fs';
+import {resolve} from 'node:path';
+import {randomBytes} from 'node:crypto';
+import {chromium} from '../../tooling/exact2/node_modules/playwright-core/index.mjs';
+const out=resolve(import.meta.dir,'../artifacts/cloud');mkdirSync(out,{recursive:true});
+const browser=await chromium.launch({headless:true,executablePath:chromium.executablePath(),args:['--enable-unsafe-webgpu','--no-sandbox','--use-mock-keychain','--password-store=basic']});
+try {
+ const context=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true});
+ const page=await context.newPage();page.setDefaultTimeout(20000);page.on('requestfailed',r=>console.log('request failed',new URL(r.url()).pathname));const errors=[];page.on('pageerror',e=>errors.push(e.message));const el=id=>page.getByTestId(id);
+ const ready=()=>page.waitForFunction(()=>{const e=document.querySelector('[data-gpu-input]');return e&&exact.gpu.wantsInput(Number(e.dataset.view))},null,{timeout:60000});
+ const state=()=>page.evaluate(()=>{const e=document.querySelector('[data-gpu-input]');return exact.gpu.agent(Number(e.dataset.view),{op:'state',resources:true}).world});
+ const frames=async(n=3)=>page.evaluate(n=>new Promise(resolve=>{const next=()=>--n<=0?resolve():requestAnimationFrame(next);requestAnimationFrame(next)}),n);
+ await page.goto(process.argv[2]??'http://127.0.0.1:8768');await ready();await el('gesture-lab').tap();await ready();
+ await el('lab-note').fill('Synthetic cloud integration check: desired Earth motion; not a human example.');await el('lab-record').tap();await page.waitForFunction(()=>document.querySelector('[data-testid="lab-status"]')?.textContent==='RECORDING');
+ await page.waitForFunction(()=>Number(document.querySelector('[data-testid="lab-duration"]')?.textContent.replace('s',''))>=3);
+ await el('lab-stop').tap();await page.waitForFunction(()=>document.querySelector('[data-testid="lab-status"]')?.textContent==='TAKE READY');await frames();
+ const count=(await state()).resources.Lab.frames.length;
+ await el('lab-library').tap();await page.getByText(/Take 1 ·/).waitFor();await el('cloud-tab').tap();
+ const credentials={origin:'https://ansuz.jera.ink',email:`browser-proof-${randomBytes(6).toString('hex')}@ansuz.test`,password:randomBytes(24).toString('base64url')};
+ const privateFile=process.env.ANSUZ_PROOF_CREDENTIALS_FILE;if(!privateFile)throw Error('Set ANSUZ_PROOF_CREDENTIALS_FILE to a private output path');
+ writeFileSync(privateFile,JSON.stringify(credentials),{mode:0o600,flag:'wx'});
+ console.log('local take saved');await el('cloud-email').fill(credentials.email);await el('cloud-password').fill(credentials.password);await el('cloud-signup').tap();await el('cloud-sync').waitFor({timeout:45000});console.log('account connected');
+ await el('cloud-sync').tap();await page.getByRole('button',{name:'Load for replay',exact:true}).waitFor({timeout:45000});
+ assert.equal(await page.getByRole('button',{name:'Load for replay',exact:true}).count(),1);
+ console.log('take synced');await el('cloud-share').tap();await page.getByRole('button',{name:'Revoke agent access'}).waitFor({timeout:20000});
+ await page.screenshot({path:resolve(out,'history.png')});
+ await el('cloud-sync').tap();await page.waitForFunction(()=>!document.querySelector('[data-testid="cloud-sync"]')?.disabled);assert.equal(await page.getByRole('button',{name:'Load for replay',exact:true}).count(),1);
+ await page.route('https://ansuz.jera.ink/**',route=>route.abort());await el('cloud-sync').tap();await page.getByText(/Cannot reach recording storage/).waitFor();await page.unroute('https://ansuz.jera.ink/**');
+ await el('cloud-sync').tap();await page.waitForFunction(()=>!document.querySelector('[data-testid="cloud-sync"]')?.disabled);
+ console.log('offline retry passed');await page.reload();await ready();await el('gesture-lab').tap();await ready();await el('lab-library').tap();await el('cloud-tab').tap();await el('cloud-sync').waitFor();await el('cloud-sync').tap();await page.getByRole('button',{name:'Load for replay',exact:true}).waitFor();
+ await page.getByRole('button',{name:'Load for replay',exact:true}).tap();await el('lab-replay').waitFor();await frames(6);assert.equal((await state()).resources.Lab.frames.length,count);
+ await el('lab-replay').tap();await page.waitForFunction(()=>document.querySelector('[data-testid="lab-status"]')?.textContent==='REPLAYING');await page.waitForFunction(()=>document.querySelector('[data-testid="lab-status"]')?.textContent==='TAKE READY',null,{timeout:15000});
+ await page.setViewportSize({width:320,height:640});await el('lab-library').tap();await el('cloud-tab').tap();await page.screenshot({path:resolve(out,'narrow.png')});
+ assert.deepEqual(errors,[]);console.log('PASS live cloud: signup, upload, idempotent sync, offline failure/retry, agent grant, session restart, download and replay');
+} catch(e){const pages=browser.contexts().flatMap(c=>c.pages());if(pages[0]){await pages[0].screenshot({path:resolve(out,'failure.png')});console.log((await pages[0].locator('body').innerText()).slice(-3000));}throw e;} finally{await browser.close()}

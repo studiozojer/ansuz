@@ -1,0 +1,12 @@
+# A dedicated service; Jera and the PDS keep their existing routes.
+ansuz.jera.ink {
+    tls force_automate
+    encode zstd gzip
+    header {
+        X-Content-Type-Options nosniff
+        -Server
+    }
+    reverse_proxy 127.0.0.1:4431 {
+        header_up -x-snapback-persona
+    }
+}
