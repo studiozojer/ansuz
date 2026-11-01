@@ -1,4 +1,5 @@
 use AccountRow, AccountAvatar from "./signin.contract"
+// Shared navigation uses monochrome SVG icons.
 use AppHeader from "./navigation.contract"
 
 shape Media

@@ -15,4 +15,7 @@ component AppHeader
           svg width=24 height=24 viewBox="0 0 24 24" fill="none" stroke="#e7e7e7" stroke-width=1.7 stroke-linecap="round" stroke-linejoin="round" aria-hidden=true
             path d="M8 3h8M9 3v7L4 19q-1 2 2 2h12q3 0 2-2l-5-9V3M7 15h10"
         button press=openOrbit testId="lab-back" aria-label="3D experience" aria-pressed=(active == "orbit") disabled=blocked width=44 height=44 box-sizing="border-box" padding=0 border-radius=12 background-color=(active == "orbit" ? "#383838" : "#202020") border-width=1 border-style="solid" border-color=(active == "orbit" ? "#777777" : "#303030") display="flex" align-items="center" justify-content="center"
-          text "🌐" font-size=23 line-height="28px" aria-hidden=true
+          svg width=24 height=24 viewBox="0 0 24 24" fill="none" stroke="#e7e7e7" stroke-width=1.7 stroke-linecap="round" stroke-linejoin="round" aria-hidden=true
+            circle cx=12 cy=12 r=9
+            ellipse cx=12 cy=12 rx=4 ry=9
+            path d="M3 12h18M4.5 7.2Q12 10 19.5 7.2M4.5 16.8Q12 14 19.5 16.8"
