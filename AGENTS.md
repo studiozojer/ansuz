@@ -1,6 +1,6 @@
 # Ansuz
 
-Work on feature branches and submit PRs. The app lives in `ansuz/`; read its generated `AGENTS.md` for Exact authoring instructions.
+Read `PRODUCT.md` before changing identity, storage, sharing or account UI. Work on feature branches and submit PRs. The app lives in `ansuz/`; read its generated `AGENTS.md` for Exact authoring instructions.
 
 David explicitly authorized local iPhone builds for Ansuz on 2026-10-31, superseding the earlier EAS-only rule for this app. Use `npm run build:ios:local` for a paired physical iPhone, or EAS for cloud builds. Simulator checks still use EAS Simulator; do not run the full Exact `prove` matrix, which invokes additional local native hosts. Hostless Rust tests and browser wasm builds are allowed locally.
 
