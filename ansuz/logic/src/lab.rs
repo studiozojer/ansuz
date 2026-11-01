@@ -3,6 +3,8 @@
 use crate::{Navigation, Options};
 use exact_game::*;
 use serde_json::{json, Value as Json};
+#[path = "../../shared/gesture_trace.rs"]
+mod trace_contract;
 pub const MAX_FRAMES: usize = 2400; // 20 seconds at 120 Hz
 pub const MAX_OBSERVED: usize = 4800;
 #[derive(Clone, Copy, Default, Data)]
@@ -62,6 +64,9 @@ pub struct Observation {
 #[derive(Default, Resource)]
 pub struct Lab {
     pub loaded_revision: u32,
+    pub format_version: u32,
+    pub pointers: crate::multitouch::Multitouch,
+    pub stop_reason: String,
     pub recording: bool,
     pub replaying: bool,
     pub cursor: u32,
@@ -83,6 +88,9 @@ pub struct Lab {
 }
 impl Lab {
     pub fn start(&mut self, n: Navigation, viewport: Vec2, args: &Options, host: f64) {
+        self.format_version = 4;
+        self.pointers.start();
+        self.stop_reason = "manual".into();
         self.initial = n;
         self.initial_position = self.position;
         self.viewport = viewport;
@@ -134,11 +142,19 @@ impl Lab {
                 position: self.finger,
                 buttons,
             });
+        } else if self.recording {
+            self.pointers.dropped = self.pointers.dropped.saturating_add(1);
         }
     }
     pub fn finish(&mut self) -> String {
         self.recording = false;
         self.captured = true;
+        if self.stop_reason == "input_limit" {
+            self.error = "Recording stopped at its input limit.".into();
+        }
+        if self.stop_reason == "interrupted" {
+            self.error = "Recording stopped because the app lost focus.".into();
+        }
         self.export()
     }
     pub fn replay(&mut self, n: &mut Navigation) {
@@ -149,6 +165,7 @@ impl Lab {
         self.recording = false;
         self.replaying = true;
         self.cursor = 0;
+        self.pointers.reset_replay();
         self.position = self.initial_position;
         *n = self.initial;
         self.error.clear();
@@ -200,27 +217,52 @@ impl Lab {
                 ])
             })
             .collect();
-        json!({"schema":"ansuz.gesture-take","version":3,"element":self.source_element,"element_model":if self.model_revision == 2 { "ansuz.elements/2" } else { "ansuz.elements/1" },"hz":120,"viewport":self.viewport.to_array(),"mode":self.source_mode,
+        let mut document = json!({"schema":"ansuz.gesture-take","version":if self.format_version >= 4 {4}else{3},"element":self.source_element,"element_model":if self.model_revision == 2 { "ansuz.elements/2" } else { "ansuz.elements/1" },"hz":120,"viewport":self.viewport.to_array(),"mode":self.source_mode,
             "reduced_motion":self.reduced_motion,"input_layer":"engine tick snapshots; observer events before gesture recognition",
             "limitations":"Primary-pointer replay. Observer up includes cancellation. Not raw digitizer samples or displayed-frame measurements.",
             "frame_columns":["flags","pointer_id","down","x","y","dx","dy","origin_x","origin_y","qx","qy","qz","qw","object_x","object_y","viewport_w","viewport_h","reduced_motion","effect_energy","effect_phase","effect_x","effect_y"],
             "observer_columns":["tick","host_ms_from_record","phase_0_down_1_move_2_up","pointer_id","x","y","buttons"],
             "initial":{"orientation":self.initial.orientation.to_array(),"velocity":self.initial.velocity.to_array(),"down":self.initial.down,
                 "pointer":self.initial.pointer,"quiet":self.initial.quiet,"position":self.initial_position.to_array()},
-            "frames":frames,"observed":observed}).to_string()
+            "frames":frames,"observed":observed});
+        if self.format_version >= 4 {
+            document["input_layer"] = json!("Delivered canvas pointer events, plus primary-pointer simulation frames. Host/engine may coalesce moves.");
+            document["limitations"] = json!("Game recognizers remain primary-pointer; delivered stream replays all contacts. Observer track is legacy primary-only and combines up/cancel. No digitizer or measured pressure claim.");
+            document["delivered_columns"] = json!([
+                "tick",
+                "host_event_ms",
+                "phase_0_down_1_move_2_up_3_cancel_4_blur",
+                "pointer_id",
+                "x",
+                "y",
+                "dx",
+                "dy",
+                "buttons"
+            ]);
+            document["initial_contacts"] = self.pointers.json_initial();
+            document["delivered"] = json!(self
+                .pointers
+                .events
+                .iter()
+                .map(|e| e.json())
+                .collect::<Vec<_>>());
+            document["capture"] = json!({"stop_reason":self.stop_reason,"dropped_events":self.pointers.dropped,"max_contacts":crate::multitouch::MAX_FINGERS});
+        }
+        document.to_string()
     }
     pub fn load(&mut self, text: &str) -> Result<(), String> {
-        if text.len() > 2 * 1024 * 1024 {
+        if text.len() > trace_contract::MAX_BYTES {
             return Err("Take exceeds 2 MiB.".into());
         }
         let j: Json = serde_json::from_str(text).map_err(|_| "Invalid take JSON.")?;
+        trace_contract::validate(&j)?;
         if j["schema"] != "ansuz.gesture-take"
-            || !matches!(j["version"].as_u64(), Some(1 | 2 | 3))
+            || !matches!(j["version"].as_u64(), Some(1 | 2 | 3 | 4))
             || j["hz"] != 120
         {
             return Err("Unsupported gesture take.".into());
         }
-        let source_element = if j["version"] == 3 {
+        let source_element = if j["version"].as_u64().unwrap_or(0) >= 3 {
             let element = j["element"]
                 .as_u64()
                 .filter(|v| *v <= 4)
@@ -278,8 +320,8 @@ impl Lab {
             let a = r
                 .as_array()
                 .filter(|a| {
-                    (j["version"] == 3 && a.len() == 22)
-                        || (j["version"] != 3 && a.len() == 18)
+                    (j["version"].as_u64().unwrap_or(0) >= 3 && a.len() == 22)
+                        || (j["version"].as_u64().unwrap_or(0) < 3 && a.len() == 18)
                         || (j["version"] == 1 && a.len() == 15)
                 })
                 .ok_or("Invalid frame.")?;
@@ -341,18 +383,13 @@ impl Lab {
             .filter(|a| a.len() <= MAX_OBSERVED)
             .ok_or("Invalid observer track.")?
         {
-            let a = array(r, 7)?;
-            if a[0] < 0. || a[0] as usize > frames.len() || a[1] < 0. || !(0. ..=2.).contains(&a[2])
-            {
-                return Err("Invalid observer event.".into());
-            }
             observed.push(Observation {
-                tick: a[0] as u32,
-                ms: a[1] as f64,
-                phase: a[2] as u32,
-                id: a[3] as u64,
-                position: Vec2::new(a[4], a[5]),
-                buttons: a[6] as u32,
+                tick: r[0].as_u64().unwrap() as u32,
+                ms: r[1].as_f64().unwrap(),
+                phase: r[2].as_u64().unwrap() as u32,
+                id: r[3].as_u64().unwrap(),
+                position: Vec2::new(r[4].as_f64().unwrap() as f32, r[5].as_f64().unwrap() as f32),
+                buttons: r[6].as_u64().unwrap() as u32,
             });
         }
         let initial_down = j["initial"]["down"]
@@ -361,6 +398,39 @@ impl Lab {
         let initial_pointer = j["initial"]["pointer"]
             .as_u64()
             .ok_or("Invalid initial pointer.")?;
+        let mut pointers = crate::multitouch::Multitouch::default();
+        if j["version"] == 4 {
+            for row in j["initial_contacts"].as_array().unwrap() {
+                pointers.initial.push(crate::multitouch::Finger {
+                    id: row[0].as_u64().unwrap(),
+                    position: Vec2::new(
+                        row[1].as_f64().unwrap() as f32,
+                        row[2].as_f64().unwrap() as f32,
+                    ),
+                });
+            }
+            for r in j["delivered"].as_array().unwrap() {
+                pointers.events.push(crate::multitouch::Sample {
+                    tick: r[0].as_u64().unwrap() as u32,
+                    ms: r[1].as_f64().unwrap(),
+                    phase: r[2].as_u64().unwrap() as u32,
+                    id: r[3].as_u64().unwrap(),
+                    position: Vec2::new(
+                        r[4].as_f64().unwrap() as f32,
+                        r[5].as_f64().unwrap() as f32,
+                    ),
+                    delta: Vec2::new(r[6].as_f64().unwrap() as f32, r[7].as_f64().unwrap() as f32),
+                    buttons: r[8].as_u64().unwrap() as u32,
+                });
+            }
+            pointers.dropped = j["capture"]["dropped_events"].as_u64().unwrap() as u32;
+        }
+        self.format_version = j["version"].as_u64().unwrap() as u32;
+        self.stop_reason = j["capture"]["stop_reason"]
+            .as_str()
+            .unwrap_or("legacy")
+            .into();
+        self.pointers = pointers;
         self.frames = frames;
         self.observed = observed;
         self.viewport = Vec2::new(view[0], view[1]);

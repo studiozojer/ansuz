@@ -1,6 +1,7 @@
 use exact_game::*;
 pub mod elements;
 pub mod lab;
+pub mod multitouch;
 pub mod orbit;
 pub mod records;
 use orbit::*;
@@ -56,6 +57,8 @@ struct Hud {
     lab_seconds: f32,
     lab_samples: u32,
     lab_observed: u32,
+    lab_contacts: u32,
+    lab_delivered: u32,
     lab_recording: bool,
     lab_replaying: bool,
     lab_ready: bool,
@@ -126,6 +129,8 @@ fn draw(w: &mut World, n: &Navigation, previous_cell: Option<Cell>, args: &Optio
         / 120.;
     let lab_samples = lab.frames.len() as u32;
     let lab_observed = lab.observed.len() as u32;
+    let lab_contacts = lab.pointers.active.len() as u32;
+    let lab_delivered = lab.pointers.events.len() as u32;
     let lab_recording = lab.recording;
     let lab_replaying = lab.replaying;
     let lab_ready = lab.captured;
@@ -134,6 +139,11 @@ fn draw(w: &mut World, n: &Navigation, previous_cell: Option<Cell>, args: &Optio
     let position = lab.position;
     let finger = lab.finger;
     let finger_down = lab.finger_down;
+    let fingers = lab.pointers.active.clone();
+    let legacy_pointer = lab.replaying && lab.format_version < 4;
+    let replay_viewport = lab
+        .replaying
+        .then(|| lab.frames[lab.cursor.saturating_sub(1) as usize].viewport);
     drop(lab);
     if args.lab {
         w.require_mut::<Visible>("lab-object").0 = flat;
@@ -142,9 +152,25 @@ fn draw(w: &mut World, n: &Navigation, previous_cell: Option<Cell>, args: &Optio
             scale: Vec3::new(0.22, 0.22, 0.01),
             ..Default::default()
         };
-        // A marker shows the delivered pointer position in the flat study.
-        w.require_mut::<Visible>("lab-finger").0 = flat && finger_down;
-        let viewport = w.resource::<LabViewport>().0;
+        for i in 0..multitouch::MAX_FINGERS {
+            let name = format!("lab-touch-{i}");
+            w.require_mut::<Visible>(&name).0 = flat && !legacy_pointer && i < fingers.len();
+            if let Some(f) = fingers.get(i) {
+                let viewport = replay_viewport.unwrap_or(w.resource::<LabViewport>().0);
+                *w.require_mut::<Transform>(&name) = Transform {
+                    position: Vec3::new(
+                        (f.position.x - viewport.x * 0.5) / viewport.y.max(1.) * 2.,
+                        -(f.position.y - viewport.y * 0.5) / viewport.y.max(1.) * 2.,
+                        0.03,
+                    ),
+                    scale: Vec3::new(0.035, 0.035, 0.01),
+                    ..Default::default()
+                };
+            }
+        }
+        // Legacy recordings retain their original primary-pointer marker.
+        w.require_mut::<Visible>("lab-finger").0 = flat && finger_down && legacy_pointer;
+        let viewport = replay_viewport.unwrap_or(w.resource::<LabViewport>().0);
         *w.require_mut::<Transform>("lab-finger") = Transform {
             position: Vec3::new(
                 (finger.x - viewport.x * 0.5) / viewport.y.max(1.) * 2.,
@@ -225,6 +251,8 @@ fn draw(w: &mut World, n: &Navigation, previous_cell: Option<Cell>, args: &Optio
         lab_seconds,
         lab_samples,
         lab_observed,
+        lab_contacts,
+        lab_delivered,
         lab_recording,
         lab_replaying,
         lab_ready,
@@ -342,6 +370,17 @@ impl Game for Ansuz {
                     ),
                 );
             }
+            for i in 0..multitouch::MAX_FINGERS {
+                w.spawn_named(
+                    &format!("lab-touch-{i}"),
+                    (
+                        Transform::default(),
+                        Mesh::cube(1.),
+                        Material::glow([0.95; 3]),
+                        Visible(false),
+                    ),
+                );
+            }
             for (name, color) in [("lab-object", 0.45), ("lab-finger", 0.95)] {
                 w.spawn_named(
                     name,
@@ -378,6 +417,8 @@ impl Game for Ansuz {
         }
         w.resource_mut::<LabViewport>().0 = input.viewport();
         if args.lab {
+            lab.pointers
+                .deliver(input, lab.frames.len() as u32, lab.recording);
             if lab.loaded_revision != args.take_revision {
                 if let Err(e) = lab.load(&args.take) {
                     lab.error = e;
@@ -415,7 +456,11 @@ impl Game for Ansuz {
                 } else if message == "lab:forget" {
                     lab = lab::Lab::default();
                     elements.reset(args.element);
-                    n = Navigation { mode: args.mode, home: args.home, ..Default::default() };
+                    n = Navigation {
+                        mode: args.mode,
+                        home: args.home,
+                        ..Default::default()
+                    };
                 } else if message == "lab:reset" {
                     if lab.recording {
                         w.emit(lab.finish());
@@ -439,8 +484,21 @@ impl Game for Ansuz {
         }
         let live = lab::Contact::read(input);
         // A live contact interrupts a replay; it never combines with replay input.
-        if lab.replaying && live.began {
+        if lab.replaying
+            && (live.began
+                || input.pointer_events().iter().any(|e| {
+                    matches!(
+                        e,
+                        InputEvent::Pointer {
+                            phase: PointerPhase::Down,
+                            ..
+                        } | InputEvent::Blur { .. }
+                    )
+                }))
+        {
             lab.replaying = false;
+            lab.pointers.active.clear();
+            lab.pointers.deliver(input, 0, false);
             n.velocity = Vec2::ZERO;
             n.down = false;
         }
@@ -482,12 +540,16 @@ impl Game for Ansuz {
             elements.step(&contact, viewport, dt, reduced);
             lab.position += movement * (2. / 0.45);
             if replaying {
+                if lab.format_version >= 4 {
+                    lab.pointers.replay(lab.cursor);
+                }
                 lab.finger = contact.position;
                 lab.finger_down = contact.down;
                 lab.cursor += 1;
                 if lab.cursor as usize >= lab.frames.len() {
                     lab.replaying = false;
                     lab.finger_down = false;
+                    lab.pointers.active.clear();
                     n.velocity = Vec2::ZERO;
                     n.down = false;
                 }
@@ -502,7 +564,22 @@ impl Game for Ansuz {
                     effect_phase: elements.phase,
                     effect_position: elements.object,
                 });
-                if lab.frames.len() >= lab::MAX_FRAMES {
+                // Focus can leave the canvas on the Stop button's down, before
+                // its press command arrives. Keep that target alive for the handoff.
+                let interrupted = lab.pointers.interrupted
+                    && lab.frames.len() as u32 >= lab.pointers.interrupted_at + 30;
+                if lab.frames.len() >= lab::MAX_FRAMES
+                    || interrupted
+                    || lab.pointers.dropped > 0
+                {
+                    lab.stop_reason = if lab.pointers.dropped > 0 {
+                        "input_limit"
+                    } else if interrupted {
+                        "interrupted"
+                    } else {
+                        "duration_limit"
+                    }
+                    .into();
                     w.emit(lab.finish());
                 }
             }

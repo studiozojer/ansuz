@@ -1,0 +1,55 @@
+diff --git a/game/engine/src/input.rs b/game/engine/src/input.rs
+index 362ca826..12658c92 100644
+--- a/game/engine/src/input.rs
++++ b/game/engine/src/input.rs
+@@ -594,6 +594,11 @@ pub struct Input {
+     pressed: Vec<String>,
+     released: Vec<String>,
+     pointer: Option<PointerState>,
++    // Delivered canvas input for recorders; transient, reset at every tick.
++    #[data(skip)]
++    pointer_events: Vec<InputEvent>,
++    #[data(skip)]
++    pointer_events_dropped: u32,
+     contacts: Vec<Contact>,
+     wheel: Vec2,
+     pub(crate) viewport: Vec2,
+@@ -875,6 +880,15 @@ impl Input {
+     pub fn pointer(&self) -> Option<PointerState> {
+         self.pointer
+     }
++    /// All delivered pointer and blur events this tick, in delivery order.
++    /// Hosts may coalesce moves before delivery; these are not digitizer samples.
++    pub fn pointer_events(&self) -> &[InputEvent] {
++        &self.pointer_events
++    }
++    /// Explicit loss counter when an exceptional tick exceeds the bounded journal.
++    pub fn pointer_events_dropped(&self) -> u32 {
++        self.pointer_events_dropped
++    }
+     /// Accumulated wheel delta since the preceding tick.
+     pub fn wheel(&self) -> Vec2 {
+         self.wheel
+@@ -931,6 +945,8 @@ impl Input {
+     }
+     pub(crate) fn clear_edges(&mut self) {
+         self.messages.clear();
++        self.pointer_events.clear();
++        self.pointer_events_dropped = 0;
+         self.tick_samples.clear();
+         self.pressed.clear();
+         self.released.clear();
+@@ -963,6 +979,13 @@ impl Input {
+     /// Apply one event stamped at world microsecond `at_us`, recording the
+     /// edges it makes.
+     pub(crate) fn apply(&mut self, event: InputEvent, at_us: i64) {
++        if matches!(event, InputEvent::Pointer { .. } | InputEvent::Blur { .. }) {
++            if self.pointer_events.len() < 4096 {
++                self.pointer_events.push(event.clone());
++            } else {
++                self.pointer_events_dropped = self.pointer_events_dropped.saturating_add(1);
++            }
++        }
+         self.mature(|due| due <= at_us);
+         if matches!(event, InputEvent::Wheel { .. } | InputEvent::Message { .. })
+             || (matches!(

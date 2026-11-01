@@ -32,11 +32,17 @@ test('real Snapback: immutable trace bytes, retry, private history, read grant, 
  assert.equal((await c.query('currentIdentity')).data.did,owner.principal);
  await assert.rejects(a.request('/auth/session',{principal:owner.principal,days:1}),'ordinary machine bearer must not mint identity');
  await assert.rejects(c.request('/auth/session',{principal:other.principal,days:1}),'ordinary DID bearer must not mint identity');
- const original=JSON.stringify({schema:'ansuz.gesture-take',version:3,hz:120,expected:'Hold, then press the earth upward — 土',frames:Array.from({length:2400},(_,i)=>Array.from({length:22},(_,j)=>i*.001+j))});
+ const original=JSON.stringify({schema:'ansuz.gesture-take',version:4,hz:120,element:3,element_model:'ansuz.elements/2',viewport:[390,500],mode:0,reduced_motion:false,
+ initial:{orientation:[0,0,0,1],velocity:[0,0],position:[0,0],down:false,pointer:0,quiet:0},
+ expected:'Hold, then press the earth upward — 土',
+ frames:Array.from({length:2400},(_,i)=>[0,0,false,i*.001,0,0,0,0,0,0,0,0,1,0,0,390,500,false,0,0,0,0]),observed:[],
+ initial_contacts:[],delivered_columns:['tick','host_event_ms','phase_0_down_1_move_2_up_3_cancel_4_blur','pointer_id','x','y','dx','dy','buttons'],
+ delivered:Array.from({length:2000},(_,i)=>[i,1000+i*8.333, i<2?0:i===1998?2:i===1999?3:1,i%2+1,100+i*.001,200+i*.002,0,0,0]),
+ capture:{stop_reason:'manual',dropped_events:0,max_contacts:10}});
  assert(original.length>200000);
  const digest=createHash('sha256').update(original).digest('hex');
  const asset=await upload(c,original);
- const args={digest,label:'Earth intention',expected:'Hold, then lift',element:3,captured:1793500000000,frames:2400,model:'ansuz.elements/1',trace:{id:asset.id}};
+ const args={digest,label:'Earth intention',expected:'Hold, then lift',element:3,captured:1793500000000,frames:2400,model:'ansuz.elements/2',trace:{id:asset.id}};
  const write=intentId();const record=(await c.mutate('archive',args,write)).result;await c.mutate('archive',args,write);
  assert.equal((await c.query('history',{owner:owner.principal})).data.length,1);
  assert.equal((await c.query('findTake',{owner:owner.principal,digest})).data.id,record.id);

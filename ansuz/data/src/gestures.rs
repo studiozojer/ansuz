@@ -1,5 +1,7 @@
 //! Gesture recordings use their own file and never load the reading library.
 use super::*;
+#[path = "../../shared/gesture_trace.rs"]
+mod trace_contract;
 const PATH: &str = "app:/data/gesture-takes-v2.json";
 const FILE: &str = "gesture-takes-v2.json";
 const LEGACY: &str = "gesture-takes.json";
@@ -55,12 +57,7 @@ fn view(doc: &Json, identity: &str, error: &str, ready: bool) -> Value {
     ])
 }
 fn valid_trace(j: &Json) -> bool {
-    j["schema"] == "ansuz.gesture-take"
-        && matches!(j["version"].as_u64(), Some(1 | 2 | 3))
-        && j["hz"] == 120
-        && j["frames"]
-            .as_array()
-            .is_some_and(|a| !a.is_empty() && a.len() <= 2400)
+    trace_contract::validate(j).is_ok()
 }
 fn validate(j: &Json) -> bool {
     matches!(j["version"].as_u64(), Some(1 | 2))
@@ -144,6 +141,27 @@ impl Gestures {
                 "The account changed. This take was not reassigned.",
             ));
         }
+        let save_key = cloud::digest(
+            &json!([
+                args.first().and_then(Value::as_str).unwrap_or(""),
+                args.get(1).and_then(Value::as_str).unwrap_or(""),
+                args.get(2).and_then(|v| if let Value::Number(n) = v {
+                    Some(*n)
+                } else {
+                    None
+                })
+            ])
+            .to_string(),
+        );
+        if source == "saveGestureTake"
+            && document["takes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|t| owner(t) == identity && t["save_key"] == save_key)
+        {
+            return Answer::Now(result(true, ""));
+        }
         let mut next = document.clone();
         if source == "saveGestureTake" {
             if next["takes"].as_array().unwrap().len() >= 256 {
@@ -163,7 +181,7 @@ impl Gestures {
                 ));
             }
             let text = args.first().and_then(|v| v.as_str()).unwrap_or("");
-            if text.len() > 2 * 1024 * 1024 {
+            if text.len() > trace_contract::MAX_BYTES {
                 return Answer::Now(result(false, "Take exceeds 2 MiB."));
             }
             let Ok(mut trace) = serde_json::from_str::<Json>(text) else {
@@ -187,14 +205,24 @@ impl Gestures {
                     trace["captured_at_ms"] = json!(at);
                 }
             }
+            if trace.to_string().len() > trace_contract::MAX_BYTES {
+                return Answer::Now(result(false, "Take with its note exceeds 2 MiB."));
+            }
             let seconds = trace["frames"].as_array().unwrap().len() as f32 / 120.;
-            next["takes"].as_array_mut().unwrap().push(json!({"id":format!("take-{id}"),"label":format!("Take {id} · {seconds:.1}s"),"expected":note,"trace":trace,"owner":if identity.is_empty(){Json::Null}else{json!(identity)}}));
+            next["takes"].as_array_mut().unwrap().push(json!({"id":format!("take-{id}"),"label":format!("Take {id} · {seconds:.1}s"),"expected":note,"trace":trace,"save_key":save_key,"owner":if identity.is_empty(){Json::Null}else{json!(identity)}}));
             next["next"] = json!(id + 1);
         } else if source == "claimGestureTake" {
             if !cloud::valid_did(identity) {
                 return Answer::Now(result(false, "Sign in before adding a device-only take."));
             }
-            if next["takes"].as_array().unwrap().iter().filter(|t| owner(t) == identity).count() >= 12 {
+            if next["takes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|t| owner(t) == identity)
+                .count()
+                >= 12
+            {
                 return Answer::Now(result(false, "Twelve takes saved for this account. Export and delete one before adding another."));
             }
             let id = args.first().and_then(Value::as_str).unwrap_or("");
@@ -322,15 +350,43 @@ mod tests {
         response(&mut g, "gestureTakes", json!([]));
         g
     }
+    fn fixture() -> Json {
+        json!({"schema":"ansuz.gesture-take","version":1,"hz":120,"viewport":[390,500],"mode":0,"reduced_motion":false,
+        "initial":{"orientation":[0,0,0,1],"velocity":[0,0],"position":[0,0],"down":false,"pointer":0,"quiet":0},
+        "frames":[[0,0,false,0,0,0,0,0,0,0,0,0,1,0,0]],"observed":[]})
+    }
     fn args() -> Vec<Value> {
         vec![
-            Value::str(
-                &json!({"schema":"ansuz.gesture-take","version":1,"hz":120,"frames":[[0]]})
-                    .to_string(),
-            ),
+            Value::str(&fixture().to_string()),
             Value::str("Catch on contact, then hold still"),
             Value::Number(1234.),
         ]
+    }
+    #[test]
+    fn retry_after_ack_or_reload_does_not_duplicate_a_take() {
+        let mut g = fresh();
+        assert!(matches!(
+            g.answer("saveGestureTake", &args(), ""),
+            Answer::Later(_)
+        ));
+        response(&mut g, "saveGestureTake", Json::Null);
+        let document = g.document.clone();
+        assert!(matches!(
+            g.answer("saveGestureTake", &args(), ""),
+            Answer::Now(_)
+        ));
+        assert!(g.pending.is_none());
+        assert_eq!(g.takes("").unwrap().len(), 1);
+        let mut reloaded = Gestures {
+            document,
+            ..Default::default()
+        };
+        assert!(matches!(
+            reloaded.answer("saveGestureTake", &args(), ""),
+            Answer::Now(_)
+        ));
+        assert!(reloaded.pending.is_none());
+        assert_eq!(reloaded.takes("").unwrap().len(), 1);
     }
     #[test]
     fn gesture_take_commits_only_after_write_and_preserves_expected_behavior() {
@@ -366,7 +422,8 @@ mod tests {
     fn account_restoration_restarts_superseded_file_read() {
         let a = "did:plc:aaaaaaaaaaaaaaaaaaaaaaaa";
         let mut g = fresh();
-        let mut values = args(); values.push(Value::str(a));
+        let mut values = args();
+        values.push(Value::str(a));
         g.answer("saveGestureTake", &values, a);
         response(&mut g, "saveGestureTake", Json::Null);
         let bytes = g.document.as_ref().unwrap().to_string();
@@ -374,10 +431,21 @@ mod tests {
         restored.answer("gestureTakes", &[Value::str("")], "");
         response(&mut restored, "gestureTakes", Json::Null);
         // Exact discards that old resource continuation on identity change.
-        assert!(matches!(restored.answer("gestureTakes", &[Value::str(a)], a), Answer::Later(_)));
+        assert!(matches!(
+            restored.answer("gestureTakes", &[Value::str(a)], a),
+            Answer::Later(_)
+        ));
         response(&mut restored, "gestureTakes", Json::Null);
         response(&mut restored, "gestureTakes", json!([FILE]));
-        restored.parse("gestureTakes", Outcome::Storage(json!({"base64":exact_data::envelope::base64(bytes.as_bytes())}).to_string().into_bytes()), a);
+        restored.parse(
+            "gestureTakes",
+            Outcome::Storage(
+                json!({"base64":exact_data::envelope::base64(bytes.as_bytes())})
+                    .to_string()
+                    .into_bytes(),
+            ),
+            a,
+        );
         assert_eq!(restored.takes(a).unwrap().len(), 1);
         assert!(restored.takes("").unwrap().is_empty());
     }
@@ -462,7 +530,7 @@ mod tests {
     }
     #[test]
     fn legacy_file_is_read_as_unassigned_and_new_writes_use_a_new_file() {
-        let legacy = json!({"version":1,"next":2,"takes":[{"id":"take-1","label":"Old take","expected":"Earth","trace":{"schema":"ansuz.gesture-take","version":1,"hz":120,"frames":[[0]]}}]});
+        let legacy = json!({"version":1,"next":2,"takes":[{"id":"take-1","label":"Old take","expected":"Earth","trace":fixture()}]});
         let mut g = Gestures::default();
         g.answer("gestureTakes", &[], "");
         response(&mut g, "gestureTakes", Json::Null);
@@ -488,5 +556,29 @@ mod tests {
         } else {
             panic!()
         }
+    }
+}
+
+#[cfg(test)]
+mod reliability_tests {
+    use super::*;
+    #[test]
+    fn malformed_trace_is_refused_before_writing() {
+        let mut g = Gestures {
+            document: Some(empty()),
+            ..Default::default()
+        };
+        let args = [
+            Value::str(r#"{"schema":"ansuz.gesture-take","version":4,"hz":120,"frames":[[0]]}"#),
+            Value::str(""),
+            Value::Number(1.),
+            Value::str(""),
+        ];
+        assert!(matches!(
+            g.answer("saveGestureTake", &args, ""),
+            Answer::Now(_)
+        ));
+        assert!(g.pending.is_none());
+        assert!(g.takes("").unwrap().is_empty());
     }
 }
