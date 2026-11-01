@@ -194,3 +194,21 @@ fn version_two_motion_takes_remain_readable() {
     loaded.load(&j.to_string()).unwrap();
     assert_eq!(loaded.source_element, 0);
 }
+
+#[test]
+fn earth_model_revision_roundtrips_without_relabeling_old_evidence() {
+    let mut s = sim();
+    let mut j: serde_json::Value = serde_json::from_str(&take(&mut s)).unwrap();
+    j["element"] = serde_json::json!(3);
+    for revision in [1, 2] {
+        j["element_model"] = serde_json::json!(format!("ansuz.elements/{revision}"));
+        let mut lab = Lab::default();
+        lab.load(&j.to_string()).unwrap();
+        assert_eq!(lab.model_revision, revision);
+        let exported: serde_json::Value = serde_json::from_str(&lab.export()).unwrap();
+        assert_eq!(exported["element_model"], j["element_model"]);
+        assert_eq!(exported["frames"], j["frames"]);
+    }
+    j["element_model"] = serde_json::json!("ansuz.elements/999");
+    assert!(Lab::default().load(&j.to_string()).is_err());
+}

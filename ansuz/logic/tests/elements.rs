@@ -44,13 +44,15 @@ fn fire_needs_stillness_preparation_and_a_fast_finish_then_cools() {
     assert_eq!(e.phase, 0);
 }
 #[test]
-fn earth_requires_both_holds_and_rejects_an_off_axis_lift() {
+fn legacy_earth_requires_both_holds_and_rejects_an_off_axis_lift() {
     let mut e = new(3);
+    e.earth_legacy = true;
     step(&mut e, Vec2::ZERO, true, true, 70);
     assert_eq!(e.phase, 2);
     step(&mut e, Vec2::new(0.2, -0.32), false, true, 45);
     assert_eq!(e.triggers, 0);
     e.reset(3);
+    e.earth_legacy = true;
     step(&mut e, Vec2::ZERO, true, true, 70);
     step(&mut e, Vec2::new(0., -0.32), false, true, 10);
     assert_eq!(e.triggers, 0, "the finishing pose must be held");
@@ -118,4 +120,74 @@ fn cancelled_contact_cannot_finish_a_charged_strike() {
     step(&mut e, Vec2::X * 0.3, false, false, 1);
     assert_eq!(e.triggers, 0);
     assert!(!e.grabbed);
+}
+
+fn sweep(e: &mut Elements, origin: Vec2, arc: f32, ticks: usize) {
+    step(e, origin, true, true, 1);
+    for i in 1..=ticks {
+        let t = i as f32 / ticks as f32;
+        step(
+            e,
+            origin + Vec2::new(arc * math::sin(t * core::f32::consts::PI), -0.85 * t),
+            false,
+            true,
+            1,
+        );
+    }
+    assert_eq!(e.phase, 2, "upstroke prepares without triggering");
+    assert!(e.pixels().iter().any(|p| p.visible), "gathering is visible");
+    for i in 1..=ticks {
+        let t = i as f32 / ticks as f32;
+        step(
+            e,
+            origin + Vec2::new(arc * math::sin(t * core::f32::consts::PI), -0.85 * (1. - t)),
+            false,
+            true,
+            1,
+        );
+    }
+    step(e, origin, false, false, 1);
+}
+#[test]
+fn earth_accepts_translated_curved_sweeps_and_repeated_strokes_during_decay() {
+    let mut e = new(3);
+    for (i, (origin, arc, ticks)) in [
+        (Vec2::ZERO, 0., 30),
+        (Vec2::new(-0.45, 0.55), 0.45, 60),
+        (Vec2::new(0.4, 0.4), -0.35, 22),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        sweep(&mut e, origin, arc, ticks);
+        assert_eq!(e.triggers, i as u32 + 1);
+        assert_eq!(e.phase, 4);
+    }
+    step(&mut e, Vec2::ZERO, false, false, 720);
+    assert_eq!(e.energy, 0.);
+}
+#[test]
+fn earth_rejects_taps_horizontal_drags_downstrokes_and_cancelled_upstrokes() {
+    for end in [
+        Vec2::ZERO,
+        Vec2::new(0.7, 0.),
+        Vec2::new(0., 0.8),
+        Vec2::new(0., -0.8),
+    ] {
+        let mut e = new(3);
+        step(&mut e, Vec2::ZERO, true, true, 1);
+        for i in 1..60 {
+            step(&mut e, end * (i as f32 / 60.), false, true, 1);
+        }
+        step(&mut e, Vec2::ZERO, false, false, 1);
+        assert_eq!(e.triggers, 0, "release must not complete an upward stroke");
+    }
+    let mut e = new(3);
+    step(&mut e, Vec2::ZERO, true, true, 1);
+    step(&mut e, Vec2::new(0., -0.8), false, true, 1);
+    step(&mut e, Vec2::ZERO, false, true, 1);
+    assert_eq!(
+        e.triggers, 0,
+        "an instantaneous jump is not a deliberate sweep"
+    );
 }

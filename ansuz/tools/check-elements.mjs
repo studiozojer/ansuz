@@ -29,10 +29,12 @@ try {
  assert.equal((await state()).resources.Elements.triggers,1);
  console.log('PASS fire: physical hold/preparation/strike, response track and replayed ignition');
 
- await el('element-earth').tap();await touch('touchStart',p());await phase('LIFT TO THE MARK');
- await page.screenshot({path:resolve(out,'earth-guide.png')});await touch('touchMove',p(0,-.32));await phase('RAISED');
- await touch('touchEnd');assert.equal((await state()).resources.Elements.triggers,1);await page.screenshot({path:resolve(out,'earth.png')});
- console.log('PASS earth: brace, target and steady finishing pose');
+ await el('element-earth').tap();await touch('touchStart',p(-.35,.4));
+ for(let i=1;i<=30;i++){await touch('touchMove',p(-.35+.25*Math.sin(i*Math.PI/30),.4-.85*i/30));await page.waitForTimeout(12);}
+ await phase('TURN · DRIVE DOWN');await page.screenshot({path:resolve(out,'earth-guide.png')});
+ for(let i=1;i<=30;i++){await touch('touchMove',p(-.35,.4-.85*(1-i/30)));await page.waitForTimeout(12);}
+ await phase('RAISED');await touch('touchEnd');assert.equal((await state()).resources.Elements.triggers,1);await page.screenshot({path:resolve(out,'earth.png')});
+ console.log('PASS earth: curved upstroke outside cube, downward return, no fixed holds');
 
  await el('element-water').tap();await touch('touchStart',p());await touch('touchMove',p(.2));
  for(let i=1;i<=55;i++){const a=i*Math.PI*2/48;await touch('touchMove',p(Math.cos(a)*.2,Math.sin(a)*.2));await page.waitForTimeout(12);}

@@ -47,3 +47,15 @@ node scripts/agent.mjs fetch '<owner-DID>' '<sha256>' /private/path/original-tak
 The agent discovers only libraries explicitly shared with its principal. Downloads are checksum-checked before writing a new file. No automatic agent processing runs. Replay measures captured trajectories and simulation response; it does not reproduce physical finger sensation or raw digitizer samples.
 
 Deployment and recovery are in [ops/README.md](ops/README.md).
+
+## Evaluating Earth changes against a recording
+
+The Earth sweep recognizer (`ansuz.elements/2`) interprets an upward gather followed by a downward return. It accepts curved paths and any starting location in the lab field. This is an editable, hand-authored interpretation of demonstrations, not a trained gesture model. Other elements still use model 1. Model-1 Earth recordings retain their original pose recognizer during ordinary replay; new Earth recordings identify model 2.
+
+To compare both recognizers against a private downloaded take without changing its source experiment, metadata, or bytes:
+
+```sh
+cargo run --manifest-path ansuz/logic/Cargo.toml --example evaluate_earth -- /private/path/original-take.json
+```
+
+Run from the repository root with the SDK's pinned Rust toolchain. The report lists trigger timestamps and phase transitions separately for each model. Keep downloaded human traces and derived reports outside the repository. Passing a demonstration is calibration evidence; use negative examples and physical-device feedback before treating a gesture vocabulary as settled. Multitouch capture/replay remains a separate pending upgrade.

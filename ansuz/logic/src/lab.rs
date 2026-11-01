@@ -74,6 +74,7 @@ pub struct Lab {
     pub reduced_motion: bool,
     pub source_mode: u32,
     pub source_element: u32,
+    pub model_revision: u32,
     pub host_start: f64,
     pub error: String,
     pub captured: bool,
@@ -88,6 +89,7 @@ impl Lab {
         self.reduced_motion = args.reduced_motion;
         self.source_mode = args.mode;
         self.source_element = args.element;
+        self.model_revision = if args.element == 3 { 2 } else { 1 };
         self.host_start = host;
         self.frames.clear();
         self.observed.clear();
@@ -198,7 +200,7 @@ impl Lab {
                 ])
             })
             .collect();
-        json!({"schema":"ansuz.gesture-take","version":3,"element":self.source_element,"element_model":"ansuz.elements/1","hz":120,"viewport":self.viewport.to_array(),"mode":self.source_mode,
+        json!({"schema":"ansuz.gesture-take","version":3,"element":self.source_element,"element_model":if self.model_revision == 2 { "ansuz.elements/2" } else { "ansuz.elements/1" },"hz":120,"viewport":self.viewport.to_array(),"mode":self.source_mode,
             "reduced_motion":self.reduced_motion,"input_layer":"engine tick snapshots; observer events before gesture recognition",
             "limitations":"Primary-pointer replay. Observer up includes cancellation. Not raw digitizer samples or displayed-frame measurements.",
             "frame_columns":["flags","pointer_id","down","x","y","dx","dy","origin_x","origin_y","qx","qy","qz","qw","object_x","object_y","viewport_w","viewport_h","reduced_motion","effect_energy","effect_phase","effect_x","effect_y"],
@@ -223,7 +225,8 @@ impl Lab {
                 .as_u64()
                 .filter(|v| *v <= 4)
                 .ok_or("Invalid element.")? as u32;
-            if j["element_model"] != "ansuz.elements/1" {
+            if j["element_model"] != "ansuz.elements/1" && j["element_model"] != "ansuz.elements/2"
+            {
                 return Err("Unsupported element model.".into());
             }
             element
@@ -363,6 +366,11 @@ impl Lab {
         self.viewport = Vec2::new(view[0], view[1]);
         self.source_mode = mode;
         self.source_element = source_element;
+        self.model_revision = if j["element_model"] == "ansuz.elements/2" {
+            2
+        } else {
+            1
+        };
         self.reduced_motion = reduced;
         self.initial = Navigation {
             orientation: q,

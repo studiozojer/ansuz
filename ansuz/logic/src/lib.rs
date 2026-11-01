@@ -478,6 +478,7 @@ impl Game for Ansuz {
         }
         n.orientation = turn(n.orientation, movement);
         if args.lab {
+            elements.earth_legacy = replaying && lab.model_revision == 1;
             elements.step(&contact, viewport, dt, reduced);
             lab.position += movement * (2. / 0.45);
             if replaying {
