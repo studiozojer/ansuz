@@ -69,6 +69,30 @@ pub fn answer(args: &[Value]) -> Answer {
         .timeout(15000),
     )
 }
+fn avatar(value: &Json) -> &str {
+    let text = value.as_str().unwrap_or("");
+    let Ok(url) = url::Url::parse(text) else {
+        return "";
+    };
+    let trusted = match url.host_str() {
+        Some("cdn.bsky.app") => {
+            url.path().starts_with("/img/avatar/")
+                || url.path().starts_with("/img/avatar_thumbnail/")
+        }
+        Some("pds.jera.ink") => url.path() == "/xrpc/com.atproto.sync.getBlob",
+        _ => false,
+    };
+    if url.scheme() == "https"
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.port().is_none()
+        && trusted
+    {
+        text
+    } else {
+        ""
+    }
+}
 pub fn parse(args: &[Value], outcome: Outcome) -> Value {
     let Outcome::Response(response) = outcome else {
         return empty(args, false);
@@ -105,6 +129,7 @@ pub fn parse(args: &[Value], outcome: Outcome) -> Value {
                 Value::str(did),
                 Value::str(name),
                 Value::str(&display),
+                Value::str(avatar(&a["avatar"])),
             ]))
         })
         .take(8)
@@ -121,6 +146,26 @@ pub fn parse(args: &[Value], outcome: Outcome) -> Value {
 mod tests {
     use super::*;
     use exact_runner::{FailureKind, Response};
+    #[test]
+    fn only_public_avatar_sources_are_rendered() {
+        for good in [
+            "https://cdn.bsky.app/img/avatar/plain/did:plc:a/bafk@jpeg",
+            "https://cdn.bsky.app/img/avatar_thumbnail/plain/did:plc:a/bafk@jpeg",
+            "https://pds.jera.ink/xrpc/com.atproto.sync.getBlob?did=a&cid=b",
+        ] {
+            assert_eq!(avatar(&json!(good)), good);
+        }
+        for bad in [
+            "javascript:alert(1)",
+            "http://cdn.bsky.app/img/avatar/a",
+            "https://cdn.bsky.app.evil.test/img/avatar/a",
+            "https://user:secret@cdn.bsky.app/img/avatar/a",
+            "https://pds.jera.ink/oauth/callback",
+            "",
+        ] {
+            assert_eq!(avatar(&json!(bad)), "");
+        }
+    }
     #[test]
     fn names_search_but_only_full_handles_or_dids_can_continue() {
         for name in [
@@ -194,7 +239,8 @@ mod tests {
                 vec![Value::record(vec![
                     Value::str("did:plc:aaaaaaaaaaaaaaaaaaaaaaaa"),
                     Value::str("alice.test"),
-                    Value::str("Alice")
+                    Value::str("Alice"),
+                    Value::str("")
                 ])],
                 true,
                 true

@@ -1,4 +1,4 @@
-use AccountRow from "./signin.contract"
+use AccountRow, AccountAvatar from "./signin.contract"
 
 shape Media
   prefersReducedMotion: bool
@@ -71,6 +71,7 @@ shape AccountSuggestion
   did: string
   handle: string
   displayName: string
+  avatar: string
 
 shape AccountSuggestions
   query: string
@@ -411,9 +412,11 @@ component Ansuz
                           if suggestions.items.length > 0
                             for person, i in suggestions.items key=person.did
                               button id=`suggestion-${i}` press=chooseAccount(person.handle) key=suggestionKey(i) class=AccountRow testId=`suggestion-${i}` aria-label=`Use @${person.handle}` min-height=52 padding=10 border-width=0 border-radius=6 color="#dddddd" text-align="left"
-                                column gap=3 min-width=0 align-items="flex-start"
-                                  text (person.displayName != "" ? person.displayName : person.handle) font-size=15 text-align="left"
-                                  text `@${person.handle}` font-size=12 color="#aaaaaa" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" max-width="100%" text-align="left"
+                                row gap=10 align-items="center" min-width=0
+                                  AccountAvatar(src=person.avatar, label=(person.displayName != "" ? person.displayName : person.handle))
+                                  column gap=3 min-width=0 flex=1 align-items="flex-start"
+                                    text (person.displayName != "" ? person.displayName : person.handle) font-size=15 text-align="left"
+                                    text `@${person.handle}` font-size=12 color="#aaaaaa" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" max-width="100%" text-align="left"
                           else
                             text "No matching account found. You can still enter your full handle or DID." testId="suggestions-empty" padding=12 font-size=13 color="#aaaaaa"
                     text "Searches public Bluesky and Jera accounts." font-size=11 color="#999999"
