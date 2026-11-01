@@ -80,6 +80,7 @@ enum Step {
     Check,
     Logout,
     Refresh(Next),
+    Authorize(Next),
     Find(Json),
     Upload(Json),
     Archive,
@@ -309,21 +310,15 @@ impl Cloud {
                     .filter(|t| t["upload_state"] == "queued")
                     .collect();
                 self.status = "Syncing this account's takes…".into();
-                self.request("/auth/refresh", json!({}), Step::Refresh(Next::Sync))
+                self.authorize(Next::Sync)
             }
-            "moreRecordings" => self.request("/auth/refresh", json!({}), Step::Refresh(Next::More)),
-            "shareRecordings" => self.request(
-                "/auth/refresh",
-                json!({}),
-                Step::Refresh(Next::Share(matches!(args.first(), Some(Value::Bool(true))))),
-            ),
-            "loadCloudTake" => self.request(
-                "/auth/refresh",
-                json!({}),
-                Step::Refresh(Next::Download(
-                    args.first().and_then(Value::as_str).unwrap_or("").into(),
-                )),
-            ),
+            "moreRecordings" => self.authorize(Next::More),
+            "shareRecordings" => {
+                self.authorize(Next::Share(matches!(args.first(), Some(Value::Bool(true)))))
+            }
+            "loadCloudTake" => self.authorize(Next::Download(
+                args.first().and_then(Value::as_str).unwrap_or("").into(),
+            )),
             _ => self.fail("Unknown recording operation."),
         }
     }
@@ -337,6 +332,19 @@ impl Cloud {
         self.next = Json::Null;
         self.shared = false;
         self.error.clear()
+    }
+    fn authorize(&mut self, next: Next) -> Answer {
+        if self.now_ms > 1e12
+            && self
+                .session
+                .as_ref()
+                .and_then(|j| j["expiresAt"].as_f64())
+                .is_some_and(|at| at > self.now_ms + 300000.)
+        {
+            self.request("/oauth/check", json!({}), Step::Authorize(next))
+        } else {
+            self.request("/auth/refresh", json!({}), Step::Refresh(next))
+        }
     }
     fn after_check(&mut self, store: &mut Store, next: Next) -> Answer {
         match next {
@@ -520,6 +528,15 @@ impl Cloud {
             };
         }
         match step {
+            Step::Authorize(next) => {
+                if s(&j, "did") != self.owner() {
+                    let _ = store.forget(SECRET);
+                    self.clear();
+                    self.ready = true;
+                    return self.fail_for(source, "Account binding changed. Sign in again.");
+                }
+                self.after_check(store, next)
+            }
             Step::Check => {
                 self.ready = true;
                 if s(&j, "did") != self.owner() {
@@ -922,6 +939,23 @@ mod tests {
         );
         assert!(c.owner().is_empty());
         assert!(s.get(SECRET).is_none());
+    }
+    #[test]
+    fn normal_sync_checks_authority_without_rotating_a_valid_bearer() {
+        let (mut c, mut store) = signed(A);
+        let original = store.get(SECRET).map(str::to_owned);
+        let now = 1793500000000.;
+        let answer = c.answer(
+            &mut store,
+            "syncRecordings",
+            &[Value::Number(now)],
+            Some(vec![]),
+        );
+        assert!(request(answer).url.ends_with("/oauth/check"));
+        assert!(request(reply(&mut c, &mut store, json!({"did":A})))
+            .url
+            .ends_with("/q/history"));
+        assert_eq!(store.get(SECRET).map(str::to_owned), original);
     }
     #[test]
     fn corrupt_existing_archive_is_not_confirmed() {
