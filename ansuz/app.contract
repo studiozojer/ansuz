@@ -1,4 +1,5 @@
 use AccountRow, AccountAvatar from "./signin.contract"
+use AppHeader from "./navigation.contract"
 
 shape Media
   prefersReducedMotion: bool
@@ -372,19 +373,14 @@ component Ansuz
             text (media.prefersReducedMotion ? "Reduced motion · no glide or spring animation" : "A sample to play with. Reset whenever you like.") testId="motion-preference" font-size=11 color="#78858e" text-align="center"
       else if study == "lab"
         column width="100%" height="100%" box-sizing="border-box" padding-top="env(safe-area-inset-top, 0px)" padding-bottom="env(safe-area-inset-bottom, 0px)" background-color="#0d0d0d" color="#e7e7e7" color-scheme="dark" accent-color="#dddddd"
-          row padding="12px 16px" gap=8 align-items="center" justify-content="space-between" flex-shrink=0
-            column gap=4
-              text "ANSUZ" letter-spacing="0.22em" font-size=16 font-weight=600
-              text "Gesture lab" font-size=12 color="#9e9e9e"
-            button press=labShowLibrary testId="lab-library" min-height=44 padding=10 border-radius=12 background-color="#232323" disabled=(orbit.lab_recording or orbit.lab_replaying)
-              text "Takes"
-            button press=showStudy("orbit") testId="lab-back" min-height=44 padding=10 border-radius=12 background-color="#232323" disabled=orbit.lab_recording
-              text "Orbit"
+          AppHeader(active="lab", blocked=orbit.lab_recording, openLab=openLab, openOrbit=showStudy("orbit"))
           row padding="0px 16px 10px" gap=6 flex-shrink=0
             button press=labTarget(true) testId="lab-flat" aria-pressed=labFlat flex=1 min-height=44 border-radius=12 background-color=(labFlat ? "#dddddd" : "#202020") color=(labFlat ? "#111111" : "#b7b7b7") disabled=(orbit.lab_recording or orbit.lab_replaying)
               text "2D target"
             button press=labTarget(false) testId="lab-3d" aria-pressed=(not labFlat) flex=1 min-height=44 border-radius=12 background-color=(labFlat ? "#202020" : "#dddddd") color=(labFlat ? "#b7b7b7" : "#111111") disabled=(orbit.lab_recording or orbit.lab_replaying)
               text "3D sphere"
+            button press=labShowLibrary testId="lab-library" min-height=44 padding=10 border-radius=12 background-color="#232323" disabled=(orbit.lab_recording or orbit.lab_replaying)
+              text "Takes"
           row padding="0px 12px 8px" gap=4
             button press=chooseElement(0) testId="element-motion" flex=1 min-height=44 border-radius=8 background-color=(labElement == 0 ? "#454545" : "#202020") disabled=(orbit.lab_recording or orbit.lab_replaying)
               text "Motion" font-size=12
@@ -536,12 +532,7 @@ component Ansuz
                 text orbit.lab_error font-size=12 color="#e0bbbb"
       else
         column width="100%" height="100%" box-sizing="border-box" padding-top="env(safe-area-inset-top, 0px)" padding-bottom="env(safe-area-inset-bottom, 0px)" background-color="#0d0d0d" color="#e7e7e7" color-scheme="dark" accent-color="#dddddd"
-          row padding="16px" gap=8 align-items="center" justify-content="space-between" flex-shrink=0
-            column gap=4
-              text "ANSUZ" letter-spacing="0.22em" font-size=16 font-weight=600
-              text "Orbital playground" font-size=12 color="#9e9e9e"
-            button press=openLab testId="gesture-lab" min-height=44 padding=10 border-radius=12 background-color="#232323"
-              text "Lab"
+          AppHeader(active="orbit", blocked=false, openLab=openLab, openOrbit=showStudy("orbit"))
           text (orbitMode == 0 ? "Turn the sphere beneath a still camera." : "Travel at a fixed height above the sphere.") testId="orbit-instruction" padding="0px 20px 12px" font-size=14 color="#b0b0b0" text-align="center" flex-shrink=0
           box testId="orbit-stage" position="relative" flex=1 min-height=180 margin="0px 12px" overflow="hidden" border-radius=20 background-color="#0b0b0b"
             canvas surface=world(mode=orbitMode, home=orbitHome, reduced_motion=media.prefersReducedMotion) testId="world" width="100%" height="100%" position="absolute" inset=0 touch-action="none" aria-label="Wireframe sphere. Drag to revolve. Arrow keys or directional buttons also move the view." tabindex=0
