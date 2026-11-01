@@ -2,6 +2,8 @@
 
 Private gesture archives use Snapback **0.4.33** on **https://ansuz.jera.ink**, separately from Jera. People sign in with an existing **ATproto / everything account**. The verified DID owns recordings and permissions; Ansuz has no email/password signup. [PRODUCT.md](../PRODUCT.md) defines the identity contract and current acceptance status.
 
+On the sign-in screen, start typing a name or handle and select an account suggestion, then press **Log in**. You can also enter a full handle or DID directly. Suggestions are public discovery, not proof of account control.
+
 In the app: **Lab → Earth → describe the intended response → Record → perform the gesture → Stop**. Record the intended motion even if today's recognizer rejects it. **Takes → Cloud → Log in → Sync** uploads only that account's device takes. **Load for replay** downloads and checks the original file, then returns to the field; press **Replay**. **Share history with studio agent** grants read/download access to the separate recorder identity; the same button revokes it.
 
 Offline capture needs no account. Signed-out takes are device-only. After signing in, **Device → Add device-only takes to this account → Add to this account** explicitly assigns a chosen take. Login and Sync never claim them automatically. Account switching clears the loaded replay, note and cloud results. Previously saved takes stay in their owner's collection. A late response from a prior account cannot load its replay into the new session.

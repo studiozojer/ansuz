@@ -1,3 +1,5 @@
+use AccountRow from "./signin.contract"
+
 shape Media
   prefersReducedMotion: bool
 
@@ -60,6 +62,22 @@ shape CloudLoaded
   error: string
   expected: string
 
+shape LoginInput
+  input: string
+  value: string
+  valid: bool
+
+shape AccountSuggestion
+  did: string
+  handle: string
+  displayName: string
+
+shape AccountSuggestions
+  query: string
+  items: AccountSuggestion[]
+  available: bool
+  complete: bool
+
 shape LabTime
   epochAtZero: number
 
@@ -92,10 +110,63 @@ component Ansuz
   derive cloudJson = match cloudDownload { case some(t) => t.json, case none => "" }
   derive cloudNote = match cloudDownload { case some(t) => t.expected, case none => "" }
   derive cloudLoadError = match cloudDownload { case some(t) => t.error, case none => "" }
+  state accountQuery = ""
+  state selectedHandle = ""
+  state accountsOpen = false
+  resource accountInput = loginInput(cloudHandle) as shape LoginInput
+  derive canConnect = accountInput.input == cloudHandle and accountInput.valid and not pending(accountInput) and not pending(cloudResult) and not pending(cloudDownload) and cloudState.ready
+  resource suggestions = lookupAccounts(accountQuery) as shape AccountSuggestions
+  task searchAccounts when not cloudState.connected and cloudTab and labLibrary and cloudHandle.trim() != accountQuery and cloudHandle != selectedHandle key=cloudHandle
+    after(250, searchAccounts)
+  action searchAccounts
+    accountQuery = cloudHandle.trim()
+  action suggestionsToggled(e: ToggleEvent)
+    accountsOpen = e.newState == "open"
+  action openSuggestions
+    if cloudHandle.trim().length >= 2 and not cloudHandle.trim().startsWith("did:") and cloudHandle != selectedHandle
+      showPopover("account-suggestions", source="account-entry")
+  action accountKey(k: string)
+    if k == "Escape"
+      preventDefault()
+      hidePopover("account-suggestions")
+    if k == "ArrowDown" and suggestions.items.length > 0 and suggestions.query == cloudHandle.trim()
+      preventDefault()
+      showPopover("account-suggestions", source="account-entry")
+      focus("suggestion-0")
+  action chooseAccount(value: string)
+    hidePopover("account-suggestions")
+    cloudHandle = value
+    selectedHandle = value
+    accountQuery = ""
+    focus("account-handle")
+  action suggestionKey(i: number, k: string)
+    if k == "Escape"
+      preventDefault()
+      hidePopover("account-suggestions")
+      focus("account-handle")
+    if k == "ArrowDown" and i + 1 < suggestions.items.length
+      preventDefault()
+      focus(`suggestion-${i + 1}`)
+    if k == "ArrowUp"
+      preventDefault()
+      if i == 0
+        focus("account-handle")
+      else
+        focus(`suggestion-${i - 1}`)
   action cloudHandleChange(text: string)
     cloudHandle = text
+    selectedHandle = ""
+    accountQuery = ""
+    if text.trim().length >= 2 and not text.trim().startsWith("did:")
+      showPopover("account-suggestions", source="account-entry")
+    else
+      hidePopover("account-suggestions")
   action cloudConnect
-    send cloudResult = connectRecordings(cloudHandle, labTime.epochAtZero + performanceNow())
+    if canConnect
+      hidePopover("account-suggestions")
+      accountQuery = ""
+      selectedHandle = cloudHandle
+      send cloudResult = connectRecordings(accountInput.value, labTime.epochAtZero + performanceNow())
   task watchAccount when cloudState.ready and labAccount != cloudState.principal key=cloudState.principal
     after(1, clearAccountView)
   action clearAccountView
@@ -326,9 +397,26 @@ component Ansuz
                   if not cloudState.connected
                     text "Log in with your everything account." font-size=15
                     text "Your recordings stay private. Device-only takes are added to an account only when you choose." font-size=12 color="#aaaaaa"
-                    input value=cloudHandle input=cloudHandleChange testId="cloud-handle" placeholder="handle.example or did:plc:…" aria-label="Everything account handle or DID" min-height=44 padding=10 background-color="#252525" border-radius=8
-                    button press=cloudConnect testId="cloud-login" min-height=44 background-color="#dddddd" color="#111111" border-radius=8 disabled=(pending(cloudResult) or pending(cloudDownload) or not cloudState.ready)
-                      text "Log in"
+                    row id="account-entry" gap=8 align-items="stretch"
+                      input id="account-handle" value=cloudHandle input=cloudHandleChange submit=cloudConnect press=openSuggestions key=accountKey testId="cloud-handle" placeholder="Name, handle or DID" aria-label="Everything account handle or DID" aria-controls="account-suggestions" aria-expanded=accountsOpen autocomplete="username" autocapitalize="none" spellcheck=false enterkeyhint="go" flex=1 min-width=0 min-height=48 box-sizing="border-box" padding=10 background-color="#252525" color="#dddddd" border-radius=8
+                      button press=cloudConnect testId="cloud-login" min-width=72 min-height=48 background-color="#dddddd" color="#111111" border-radius=8 disabled=(not canConnect)
+                        text "Log in"
+                    column id="account-suggestions" testId="account-suggestions" popover="auto" toggle=suggestionsToggled role="group" aria-label="Account suggestions" position="absolute" position-area="bottom span-right" position-try-fallbacks="flip-block, flip-inline" margin="8px 0" width="min(360px, calc(100vw - 48px))" max-height="min(320px, 45vh)" overflow-y="auto" box-sizing="border-box" padding=6 gap=2 background-color="#202020" color="#dddddd" border-width=0 border-radius=10 box-shadow="0 8px 24px #00000066"
+                      if pending(suggestions) or accountQuery != cloudHandle.trim()
+                        text "Looking for accounts…" padding=12 font-size=13 color="#aaaaaa" aria-live="polite"
+                      if accountQuery == cloudHandle.trim() and suggestions.query == accountQuery and not pending(suggestions)
+                        if not suggestions.available
+                          text "Suggestions unavailable. You can still enter your full handle or DID." testId="suggestions-error" padding=12 font-size=13 color="#aaaaaa"
+                        else
+                          if suggestions.items.length > 0
+                            for person, i in suggestions.items key=person.did
+                              button id=`suggestion-${i}` press=chooseAccount(person.handle) key=suggestionKey(i) class=AccountRow testId=`suggestion-${i}` aria-label=`Use @${person.handle}` min-height=52 padding=10 border-width=0 border-radius=6 color="#dddddd" text-align="left"
+                                column gap=3 min-width=0 align-items="flex-start"
+                                  text (person.displayName != "" ? person.displayName : person.handle) font-size=15 text-align="left"
+                                  text `@${person.handle}` font-size=12 color="#aaaaaa" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" max-width="100%" text-align="left"
+                          else
+                            text "No matching account found. You can still enter your full handle or DID." testId="suggestions-empty" padding=12 font-size=13 color="#aaaaaa"
+                    text "Searches public Bluesky and Jera accounts." font-size=11 color="#999999"
                     if pending(cloudResult)
                       button press=cloudDisconnect min-height=44 background-color="#252525" border-radius=8
                         text "Cancel sign-in"
