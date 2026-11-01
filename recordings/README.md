@@ -1,5 +1,7 @@
 # Ansuz recording history
 
+**Identity correction:** the password flow described below is the current implementation, but David has rejected it in favor of existing ATproto / everything account authorization. [PRODUCT.md](../PRODUCT.md) is authoritative. Login replacement is pending; storage/replay tests do not establish ATproto acceptance.
+
 Private gesture archives backed by Snapback **0.4.33**, deployed separately from Jera at **https://ansuz.jera.ink**. The Exact app uses Snapback's authenticated HTTP and file APIs. This first version is explicit archival sync, not a Snapback device replica or an extracted Expo package.
 
 In the app: **Lab → Earth → describe the intended response → Record → perform the gesture → Stop**. Record the intended motion even if today's recognizer rejects it. **Takes → Cloud → Create account / Sign in → Sync** uploads saved device takes and refreshes history. **Load for replay** downloads and verifies the original file, then returns to the field; press **Replay**. **Share history with studio agent** grants read/download access to the public principal in `ansuz/data/src/cloud.rs`; the same button revokes it.
