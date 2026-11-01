@@ -6,7 +6,7 @@ ansuz.jera.ink {
         X-Content-Type-Options nosniff
         -Server
     }
-    @oauth path /oauth/* /auth/refresh
+    @oauth path /oauth/* /auth/refresh /m/archive
     handle @oauth {
         reverse_proxy 127.0.0.1:4433
     }

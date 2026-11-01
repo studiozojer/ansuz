@@ -30,6 +30,7 @@ fn take_value(t: &Json) -> Value {
         Value::str(t["label"].as_str().unwrap()),
         Value::str(t["expected"].as_str().unwrap_or("")),
         Value::str(&t["trace"].to_string()),
+        Value::str(t["upload_state"].as_str().unwrap_or("device")),
     ])
 }
 fn owner(t: &Json) -> &str {
@@ -53,6 +54,11 @@ fn view(doc: &Json, identity: &str, error: &str, ready: bool) -> Value {
                 .filter(|t| owner(t).is_empty())
                 .map(take_value)
                 .collect(),
+        ),
+        Value::Number(
+            all.iter()
+                .filter(|t| owner(t) == identity && t["upload_state"] == "queued")
+                .count() as f64,
         ),
     ])
 }
@@ -85,7 +91,13 @@ impl Gestures {
     pub fn owns(source: &str) -> bool {
         matches!(
             source,
-            "gestureTakes" | "saveGestureTake" | "deleteGestureTake" | "claimGestureTake"
+            "gestureTakes"
+                | "saveGestureTake"
+                | "deleteGestureTake"
+                | "claimGestureTake"
+                | "queueGestureTakes"
+                | "confirmGestureTakes"
+                | "pauseGestureTake"
         )
     }
     pub fn hidden() -> Value {
@@ -209,8 +221,43 @@ impl Gestures {
                 return Answer::Now(result(false, "Take with its note exceeds 2 MiB."));
             }
             let seconds = trace["frames"].as_array().unwrap().len() as f32 / 120.;
-            next["takes"].as_array_mut().unwrap().push(json!({"id":format!("take-{id}"),"label":format!("Take {id} · {seconds:.1}s"),"expected":note,"trace":trace,"save_key":save_key,"owner":if identity.is_empty(){Json::Null}else{json!(identity)}}));
+            next["takes"].as_array_mut().unwrap().push(json!({"id":format!("take-{id}"),"label":format!("Take {id} · {seconds:.1}s"),"expected":note,"trace":trace,"save_key":save_key,"upload_state":if identity.is_empty(){"device"}else{"queued"},"owner":if identity.is_empty(){Json::Null}else{json!(identity)}}));
             next["next"] = json!(id + 1);
+        } else if source == "queueGestureTakes" || source == "confirmGestureTakes" {
+            if !cloud::valid_did(identity) {
+                return Answer::Now(result(false, "Sign in first."));
+            }
+            let receipts: Vec<String> = if source == "confirmGestureTakes" {
+                match serde_json::from_str(args.first().and_then(Value::as_str).unwrap_or("")) {
+                    Ok(v) => v,
+                    Err(_) => return Answer::Now(result(false, "Invalid upload receipt.")),
+                }
+            } else {
+                Vec::new()
+            };
+            for t in next["takes"].as_array_mut().unwrap() {
+                if owner(t) != identity {
+                    continue;
+                }
+                if source == "queueGestureTakes" && t["upload_state"] != "confirmed" {
+                    t["upload_state"] = json!("queued");
+                }
+                if source == "confirmGestureTakes"
+                    && receipts.contains(&cloud::digest(&t["trace"].to_string()))
+                {
+                    t["upload_state"] = json!("confirmed");
+                }
+            }
+        } else if source == "pauseGestureTake" {
+            let id = args.first().and_then(Value::as_str).unwrap_or("");
+            if let Some(t) = next["takes"]
+                .as_array_mut()
+                .unwrap()
+                .iter_mut()
+                .find(|t| owner(t) == identity && t["id"] == id)
+            {
+                t["upload_state"] = json!("device");
+            }
         } else if source == "claimGestureTake" {
             if !cloud::valid_did(identity) {
                 return Answer::Now(result(false, "Sign in before adding a device-only take."));
@@ -239,8 +286,20 @@ impl Gestures {
             };
             // Explicit local attribution. The source trace bytes stay unchanged.
             take["owner"] = json!(identity);
+            take["upload_state"] = json!("queued");
         } else {
             let id = args.first().and_then(|v| v.as_str()).unwrap_or("");
+            if next["takes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|t| owner(t) == identity && t["id"] == id && t["upload_state"] == "queued")
+            {
+                return Answer::Now(result(
+                    false,
+                    "Pause this upload before deleting its local source.",
+                ));
+            }
             next["takes"]
                 .as_array_mut()
                 .unwrap()
@@ -361,6 +420,34 @@ mod tests {
             Value::str("Catch on contact, then hold still"),
             Value::Number(1234.),
         ]
+    }
+    #[test]
+    fn queue_survives_reload_and_receipts_are_bound_to_account_and_digest() {
+        let a = "did:plc:aaaaaaaaaaaaaaaaaaaaaaaa";
+        let b = "did:plc:bbbbbbbbbbbbbbbbbbbbbbbb";
+        let mut g = fresh();
+        let mut input = args();
+        input.push(Value::str(a));
+        assert!(matches!(
+            g.answer("saveGestureTake", &input, a),
+            Answer::Later(_)
+        ));
+        response(&mut g, "saveGestureTake", Json::Null);
+        let mut restored = Gestures {
+            document: g.document.clone(),
+            ..Default::default()
+        };
+        assert_eq!(restored.takes(a).unwrap()[0]["upload_state"], "queued");
+        assert!(restored.takes(b).unwrap().is_empty());
+        let hash = cloud::digest(&restored.takes(a).unwrap()[0]["trace"].to_string());
+        let receipt = [Value::str(&json!([hash]).to_string()), Value::str(b)];
+        restored.answer("confirmGestureTakes", &receipt, b);
+        restored.parse("confirmGestureTakes", Outcome::Storage(b"null".to_vec()), b);
+        assert_eq!(restored.takes(a).unwrap()[0]["upload_state"], "queued");
+        let receipt = [Value::str(&json!([hash]).to_string()), Value::str(a)];
+        restored.answer("confirmGestureTakes", &receipt, a);
+        restored.parse("confirmGestureTakes", Outcome::Storage(b"null".to_vec()), a);
+        assert_eq!(restored.takes(a).unwrap()[0]["upload_state"], "confirmed");
     }
     #[test]
     fn retry_after_ack_or_reload_does_not_duplicate_a_take() {
