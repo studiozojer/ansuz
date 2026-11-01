@@ -382,3 +382,51 @@ fn reported_negative_x_to_negative_y_join_keeps_the_view_continuous() {
         assert!(crossed, "Must exercise the reported -X to -Y boundary");
     }
 }
+
+#[test]
+fn fresh_pointer_ids_catch_drift_and_tiny_drag_stays_put() {
+    for mode in [0, 1] {
+        let mut s = sim(mode);
+        let event = |id, phase, x, dx| InputEvent::Pointer {
+            id,
+            phase,
+            x,
+            y: 250.,
+            dx,
+            dy: 0.,
+            buttons: if matches!(phase, PointerPhase::Down | PointerPhase::Move) {
+                1
+            } else {
+                0
+            },
+            at_ms: 0.,
+            player: 0,
+        };
+        s.input(event(1, PointerPhase::Down, 100., 0.));
+        s.run(16.);
+        s.input(event(1, PointerPhase::Move, 180., 80.));
+        s.run(16.);
+        s.input(event(1, PointerPhase::Up, 180., 0.));
+        s.run(80.);
+        assert!(s.world().resource::<Navigation>().velocity.length() > 0.01);
+        let before = orientation(&s);
+        s.input(event(2, PointerPhase::Down, 220., 0.));
+        s.run(16.);
+        assert_eq!(
+            orientation(&s),
+            before,
+            "Fresh contact must catch without movement"
+        );
+        s.run(100.);
+        assert_eq!(orientation(&s), before);
+        s.input(event(2, PointerPhase::Move, 222., 2.));
+        s.run(16.);
+        let held = orientation(&s);
+        assert!(
+            held.angle_between(before) < 0.003,
+            "Tiny drag must not inherit prior drift"
+        );
+        s.run(300.);
+        assert_eq!(orientation(&s), held, "Held finger must not skip forward");
+    }
+}

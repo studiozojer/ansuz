@@ -13,3 +13,4 @@ Named checkpoints at changes of direction. Git retains the implementation; these
 | [001 — voxel surfaces](strata/001-voxel-surfaces.爻) | `21f38cc` | Atmospheric voxel navigation, local face notes, first physical iPhone build. |
 | [002 — interaction playground](strata/002-interaction-playground.爻) | Commit introducing this record | Native manipulation becomes the entry experience. |
 | [003 — orbital gestures](strata/003-orbital-gestures.爻) | Commit introducing this record; prior main `4b4f193` | Two orbital experiments, fixed reticle, retained 2D study. |
+| [004 — gesture lab](strata/004-gesture-lab.爻) | Commit introducing this record; prior branch `a3bb917` | Record human input, expected behavior and simulated response; replay in 2D/3D. |

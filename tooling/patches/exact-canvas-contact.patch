@@ -1,0 +1,20 @@
+diff --git a/host/apple/Sources/ExactKit/IOS/ScrollViewIOS.swift b/host/apple/Sources/ExactKit/IOS/ScrollViewIOS.swift
+index 5efbbf1d..cdcc473b 100644
+--- a/host/apple/Sources/ExactKit/IOS/ScrollViewIOS.swift
++++ b/host/apple/Sources/ExactKit/IOS/ScrollViewIOS.swift
+@@ -72,7 +72,14 @@ package class ScrollView: UIScrollView {
+         // below visits each of them, and walking twice at every nested
+         // scroller made a touch on a list walk its rows four times.
+         guard !isHidden, isUserInteractionEnabled, alpha >= 0.01, self.point(inside: point, with: event) else { return nil }
+-        if let child = NodeView.hitChildren(in: self, at: point, with: event) { return child }
++        if let child = NodeView.hitChildren(in: self, at: point, with: event) {
++            // Input-owning canvases already refuse this scroller's pan. Do not
++            // also hold their initial contact in UIKit's scroll-intent timer.
++            // Choose per landing so ordinary scrolling content keeps its delay.
++            delaysContentTouches = !CanvasInputs.owns(child)
++            return child
++        }
++        delaysContentTouches = true
+         // A paragraph's scroller with nothing to scroll is its node, as on the
+         // web, where a click on it bubbles to the button around it: a
+         // `UIScrollView` keeps a touch from the responder chain. CSS makes one

@@ -1,4 +1,5 @@
 use exact_game::*;
+pub mod lab;
 pub mod orbit;
 pub mod records;
 use orbit::*;
@@ -10,6 +11,14 @@ pub struct Options {
     pub home: u32,
     #[live]
     pub reduced_motion: bool,
+    #[live]
+    pub lab: bool,
+    #[live]
+    pub flat: bool,
+    #[live]
+    pub take: String,
+    #[live]
+    pub take_revision: u32,
 }
 #[derive(Clone, Copy, Resource)]
 pub struct Navigation {
@@ -40,17 +49,39 @@ struct Hud {
     mode: String,
     motion: String,
     altitude: f32,
+    lab_status: String,
+    lab_seconds: f32,
+    lab_samples: u32,
+    lab_observed: u32,
+    lab_recording: bool,
+    lab_replaying: bool,
+    lab_ready: bool,
+    lab_error: String,
 }
-fn draw(w: &mut World, n: &Navigation, previous_cell: Option<Cell>) {
+fn draw(w: &mut World, n: &Navigation, previous_cell: Option<Cell>, args: &Options) {
     let flying = n.mode == 1;
-    let (camera, globe) = poses(n.orientation, flying);
+    let (mut camera, globe) = poses(n.orientation, flying);
+    let flat = args.lab && args.flat;
+    if flat {
+        camera = Transform::at(0., 0., 10.);
+    }
+    w.require_mut::<Camera>("camera").projection = if flat {
+        Projection::Orthographic {
+            height: 2.,
+            integer_scale: false,
+        }
+    } else {
+        Projection::Perspective
+    };
+    w.require_mut::<Visible>("sphere").0 = !flat;
+    w.require_mut::<Visible>("grid").0 = !flat;
     *w.require_mut::<Transform>("camera") = camera;
     *w.require_mut::<Transform>("sphere") = globe;
     *w.require_mut::<Transform>("grid") = globe;
     let cell = target(n.orientation, flying);
     for index in 0..4 * EDGE_STEPS {
         let name = format!("focus-{index}");
-        w.require_mut::<Visible>(&name).0 = cell.is_some();
+        w.require_mut::<Visible>(&name).0 = cell.is_some() && !flat;
         if let Some(cell) = cell {
             let (a, b) = edge(cell, index);
             let a = globe.rotation * a;
@@ -68,6 +99,53 @@ fn draw(w: &mut World, n: &Navigation, previous_cell: Option<Cell>) {
                 *w.require_mut::<Transform>(&name) = pose;
             }
         }
+    }
+    let lab = w.resource::<lab::Lab>();
+    let lab_status = if lab.recording {
+        "RECORDING"
+    } else if lab.replaying {
+        "REPLAYING"
+    } else if lab.captured {
+        "TAKE READY"
+    } else {
+        "READY"
+    }
+    .into();
+    let lab_seconds = if lab.replaying {
+        lab.cursor
+    } else {
+        lab.frames.len() as u32
+    } as f32
+        / 120.;
+    let lab_samples = lab.frames.len() as u32;
+    let lab_observed = lab.observed.len() as u32;
+    let lab_recording = lab.recording;
+    let lab_replaying = lab.replaying;
+    let lab_ready = lab.captured;
+    let lab_error = lab.error.clone();
+    let position = lab.position;
+    let finger = lab.finger;
+    let finger_down = lab.finger_down;
+    drop(lab);
+    if args.lab {
+        w.require_mut::<Visible>("lab-object").0 = flat;
+        *w.require_mut::<Transform>("lab-object") = Transform {
+            position: Vec3::new(position.x, -position.y, 0.),
+            scale: Vec3::new(0.22, 0.22, 0.01),
+            ..Default::default()
+        };
+        // HUD-space pointer marker. The 3D view uses the same pointer overlay in Contract.
+        w.require_mut::<Visible>("lab-finger").0 = flat && finger_down;
+        let viewport = w.resource::<LabViewport>().0;
+        *w.require_mut::<Transform>("lab-finger") = Transform {
+            position: Vec3::new(
+                (finger.x - viewport.x * 0.5) / viewport.y.max(1.) * 2.,
+                -(finger.y - viewport.y * 0.5) / viewport.y.max(1.) * 2.,
+                0.02,
+            ),
+            scale: Vec3::new(0.028, 0.028, 0.01),
+            ..Default::default()
+        };
     }
     w.publish_record(&Hud {
         cell: cell.map_or_else(
@@ -96,8 +174,18 @@ fn draw(w: &mut World, n: &Navigation, previous_cell: Option<Cell>) {
         }
         .into(),
         altitude: ALTITUDE,
+        lab_status,
+        lab_seconds,
+        lab_samples,
+        lab_observed,
+        lab_recording,
+        lab_replaying,
+        lab_ready,
+        lab_error,
     });
 }
+#[derive(Default, Resource)]
+pub struct LabViewport(pub Vec2);
 pub struct Ansuz;
 impl Game for Ansuz {
     const ID: &'static str = "ansuz";
@@ -109,6 +197,8 @@ impl Game for Ansuz {
     }
     fn register(w: &mut World, _: &std::collections::BTreeMap<&str, Value>) {
         w.register_resource::<Navigation>();
+        w.register_resource::<lab::Lab>();
+        w.register_resource::<LabViewport>();
     }
     fn actions() -> Actions {
         Actions::new()
@@ -128,6 +218,8 @@ impl Game for Ansuz {
             ..Default::default()
         };
         w.insert_resource(n);
+        w.insert_resource(lab::Lab::default());
+        w.insert_resource(LabViewport::default());
         w.insert_resource(Environment {
             background: Some(Color::hex("#0b0b0b")),
             ambient: 0.,
@@ -145,11 +237,21 @@ impl Game for Ansuz {
             .expect("valid spherical grid");
         w.spawn_named(
             "sphere",
-            (Transform::default(), shell, Material::glow([0.009; 3])),
+            (
+                Transform::default(),
+                shell,
+                Material::glow([0.009; 3]),
+                Visible(true),
+            ),
         );
         w.spawn_named(
             "grid",
-            (Transform::default(), grid, Material::glow([0.19; 3])),
+            (
+                Transform::default(),
+                grid,
+                Material::glow([0.19; 3]),
+                Visible(true),
+            ),
         );
         w.spawn_named(
             "camera",
@@ -173,7 +275,20 @@ impl Game for Ansuz {
                 ),
             );
         }
-        draw(w, &n, None);
+        if args.lab {
+            for (name, color) in [("lab-object", 0.45), ("lab-finger", 0.95)] {
+                w.spawn_named(
+                    name,
+                    (
+                        Transform::default(),
+                        Mesh::cube(1.),
+                        Material::glow([color; 3]),
+                        Visible(false),
+                    ),
+                );
+            }
+        }
+        draw(w, &n, None, args);
     }
     fn tick(w: &mut World, input: &Input, args: &Options) {
         let mut n = *w.resource::<Navigation>();
@@ -190,60 +305,80 @@ impl Game for Ansuz {
             n.mode = args.mode;
             n.velocity = Vec2::ZERO;
         }
-        let p = input.pointer();
-        let began = input.pressed("orbit-contact");
-        let ended = input.released("orbit-contact");
-        let down = p.is_some_and(|p| p.down && p.press_origin.is_some());
-        let released_primary =
-            ended && (began || n.down) && p.is_some_and(|p| p.press_origin.is_some());
-        let mut movement = Vec2::ZERO;
-        // Edges survive a complete gesture between ticks. Catch a new contact
-        // even when it has already lifted (or been cancelled) by this update.
-        if began {
-            n.velocity = Vec2::ZERO;
-            n.quiet = 0.;
-        }
-        if down || released_primary {
-            let p = p.unwrap();
-            if !n.down || n.pointer != p.id {
-                n.velocity = Vec2::ZERO;
-                n.quiet = 0.;
+        let mut lab = std::mem::take(&mut *w.resource_mut::<lab::Lab>());
+        w.resource_mut::<LabViewport>().0 = input.viewport();
+        if args.lab {
+            if lab.loaded_revision != args.take_revision {
+                if let Err(e) = lab.load(&args.take) {
+                    lab.error = e;
+                }
+                lab.loaded_revision = args.take_revision;
             }
-            n.quiet += dt;
-            // Touch Down is independent of mouse buttons. A stationary finger
-            // must stop drift immediately, without needing recognition slop.
-            // On a new contact, use its own travel, excluding earlier hover
-            // motion in the same tick. Include the terminal sample before Up.
-            let delta = if began {
-                p.position - p.press_origin.unwrap()
-            } else {
-                p.delta
-            };
-            if delta.length_squared() > 0. {
-                let sensitivity = 0.45 / input.viewport().y.max(240.);
-                movement = delta * sensitivity;
-                n.velocity = (movement / n.quiet.max(dt)).clamp_length_max(0.7);
-                n.quiet = 0.;
-            } else if n.quiet > 0.075 {
-                n.velocity = Vec2::ZERO;
-            }
-            n.pointer = p.id;
-        } else if (n.down || ended) && p.is_none_or(|p| p.press_origin.is_none()) {
-            n.velocity = Vec2::ZERO;
-        } else if !args.reduced_motion {
-            let decay = math::exp(-5.5 * dt);
-            movement = n.velocity * ((1. - decay) / 5.5);
-            n.velocity *= decay;
-            if n.velocity.length() < 0.001 {
-                n.velocity = Vec2::ZERO;
+            for message in input.messages() {
+                if let Some(host) = message
+                    .strip_prefix("lab:record|")
+                    .and_then(|s| s.parse::<f64>().ok())
+                    .filter(|n| n.is_finite())
+                {
+                    lab.start(n, input.viewport(), args, host);
+                } else if message == "lab:stop" {
+                    if lab.recording {
+                        w.emit(lab.finish());
+                    }
+                    lab.replaying = false;
+                    n.velocity = Vec2::ZERO;
+                    n.down = false;
+                } else if message == "lab:replay" {
+                    lab.replay(&mut n);
+                    n.mode = args.mode;
+                } else if message == "lab:reset" {
+                    if lab.recording {
+                        w.emit(lab.finish());
+                    }
+                    lab.replaying = false;
+                    lab.position = Vec2::ZERO;
+                    n = Navigation {
+                        mode: args.mode,
+                        home: args.home,
+                        ..Default::default()
+                    };
+                } else if let Some(text) = message.strip_prefix("lab:load|") {
+                    if let Err(e) = lab.load(text) {
+                        lab.error = e;
+                    }
+                } else {
+                    lab.observe(message);
+                }
             }
         }
-        if args.reduced_motion {
+        let live = lab::Contact::read(input);
+        // A live contact interrupts a replay; it never combines with replay input.
+        if lab.replaying && live.began {
+            lab.replaying = false;
             n.velocity = Vec2::ZERO;
+            n.down = false;
         }
-        n.down = down;
+        let replaying = lab.replaying;
+        let contact = if replaying {
+            lab.frames[lab.cursor as usize].contact
+        } else {
+            live
+        };
+        let viewport = if replaying {
+            lab.frames[lab.cursor as usize].viewport
+        } else {
+            input.viewport()
+        };
+        let reduced = if replaying {
+            lab.frames[lab.cursor as usize].reduced_motion
+        } else {
+            args.reduced_motion
+        };
+        let mut movement = advance_motion(&mut n, contact, dt, viewport, reduced);
         let keys = input.stick("move");
-        movement += Vec2::new(-keys.x, keys.y) * dt * 0.24;
+        if !replaying {
+            movement += Vec2::new(-keys.x, keys.y) * dt * 0.24;
+        }
         for (name, delta) in [
             ("west", Vec2::new(0.035, 0.)),
             ("east", Vec2::new(-0.035, 0.)),
@@ -256,10 +391,98 @@ impl Game for Ansuz {
             }
         }
         n.orientation = turn(n.orientation, movement);
+        if args.lab {
+            lab.position += movement * (2. / 0.45);
+            if replaying {
+                lab.finger = contact.position;
+                lab.finger_down = contact.down;
+                lab.cursor += 1;
+                if lab.cursor as usize >= lab.frames.len() {
+                    lab.replaying = false;
+                    lab.finger_down = false;
+                    n.velocity = Vec2::ZERO;
+                    n.down = false;
+                }
+            } else if lab.recording {
+                lab.frames.push(lab::Frame {
+                    contact,
+                    viewport,
+                    reduced_motion: reduced,
+                    orientation: n.orientation,
+                    position: lab.position,
+                });
+                if lab.frames.len() >= lab::MAX_FRAMES {
+                    w.emit(lab.finish());
+                }
+            }
+            if lab.recording || lab.replaying {
+                w.busy("gesture lab");
+            }
+        }
+        *w.resource_mut::<lab::Lab>() = lab;
         if n.velocity.length() > 0.001 {
             w.busy("orbital drift");
         }
         *w.resource_mut::<Navigation>() = n;
-        draw(w, &n, previous_cell);
+        draw(w, &n, previous_cell, args);
     }
+}
+
+pub fn advance_motion(
+    n: &mut Navigation,
+    c: lab::Contact,
+    dt: f32,
+    viewport: Vec2,
+    reduced_motion: bool,
+) -> Vec2 {
+    let began = c.began;
+    let ended = c.ended;
+    let down = c.present && c.down && c.has_origin;
+    let released_primary = ended && (began || n.down) && c.present && c.has_origin;
+    let mut movement = Vec2::ZERO;
+    // Edges survive a complete gesture between ticks. Catch a new contact
+    // even when it has already lifted (or been cancelled) by this update.
+    if began {
+        n.velocity = Vec2::ZERO;
+        n.quiet = 0.;
+    }
+    if down || released_primary {
+        if !n.down || n.pointer != c.id {
+            n.velocity = Vec2::ZERO;
+            n.quiet = 0.;
+        }
+        n.quiet += dt;
+        // Touch Down is independent of mouse buttons. A stationary finger
+        // must stop drift immediately, without needing recognition slop.
+        // On a new contact, use its own travel, excluding earlier hover
+        // motion in the same tick. Include the terminal sample before Up.
+        let delta = if began {
+            c.position - c.origin
+        } else {
+            c.delta
+        };
+        if delta.length_squared() > 0. {
+            let sensitivity = 0.45 / viewport.y.max(240.);
+            movement = delta * sensitivity;
+            n.velocity = (movement / n.quiet.max(dt)).clamp_length_max(0.7);
+            n.quiet = 0.;
+        } else if n.quiet > 0.075 {
+            n.velocity = Vec2::ZERO;
+        }
+        n.pointer = c.id;
+    } else if (n.down || ended) && (!c.present || !c.has_origin) {
+        n.velocity = Vec2::ZERO;
+    } else if !reduced_motion {
+        let decay = math::exp(-5.5 * dt);
+        movement = n.velocity * ((1. - decay) / 5.5);
+        n.velocity *= decay;
+        if n.velocity.length() < 0.001 {
+            n.velocity = Vec2::ZERO;
+        }
+    }
+    if reduced_motion {
+        n.velocity = Vec2::ZERO;
+    }
+    n.down = down;
+    movement
 }

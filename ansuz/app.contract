@@ -8,9 +8,78 @@ shape OrbitHud
   mode: string
   motion: string
   altitude: number
+  lab_status: string
+  lab_seconds: number
+  lab_samples: number
+  lab_observed: number
+  lab_recording: bool
+  lab_replaying: bool
+  lab_ready: bool
+  lab_error: string
+
+shape GestureTake
+  id: string
+  label: string
+  expected: string
+  json: string
+
+shape GestureTakes
+  items: GestureTake[]
+  error: string
+  ready: bool
+
+shape GestureSaved
+  ok: bool
+  error: string
+
+shape LabTime
+  epochAtZero: number
 
 component Ansuz
   state study = "orbit"
+  state labFlat = true
+  state labNote = ""
+  state labTrace = ""
+  state labImport = ""
+  state labLoadVersion = 0
+  state labLibrary = false
+  state labCopied = false
+  resource labTime = exactTime() as shape LabTime
+  resource labTakes = gestureTakes() as shape GestureTakes
+  mutation labSaved as shape GestureSaved refreshes labTakes
+  derive labSaveError = match labSaved { case some(s) => s.error, case none => "" }
+  action openLab
+    study = "lab"
+  action labTarget(flat: bool)
+    labFlat = flat
+  action labCommand(command: string)
+    postMessage(`lab:${command}`, "world")
+  action labRecord
+    labCopied = false
+    postMessage(`lab:record|${performanceNow()}`, "world")
+  action labObserve(phase: string, e: PointerEvent)
+    postMessage(`finger|${phase}|${e.pointerId}|${e.offsetX}|${e.offsetY}|${e.buttons}|${performanceNow()}`, "world")
+  action labReceive(text: string)
+    labTrace = text
+    send labSaved = saveGestureTake(text, labNote, labTime.epochAtZero + performanceNow())
+  action labSaveAgain
+    send labSaved = saveGestureTake(labTrace, labNote, labTime.epochAtZero + performanceNow())
+  action labEditNote(text: string)
+    labNote = text
+  action labShowLibrary
+    labLibrary = not labLibrary
+  action labLoad(text: string, note: string)
+    labTrace = text
+    labNote = note
+    labLibrary = false
+    labCopied = false
+    labImport = text
+    labLoadVersion = labLoadVersion + 1
+  action labCopy(text: string)
+    copyText(text)
+    labCopied = true
+  action labDelete(id: string)
+    send labSaved = deleteGestureTake(id)
   state orbitMode = 0
   state orbitHome = 0
   resource orbit = exactSurface("world") as shape OrbitHud
@@ -108,14 +177,85 @@ component Ansuz
               button press=nudge(24, 0) testId="right" aria-label="Move right" min-width=44 min-height=44 border-radius=10
                 text "→"
             text (media.prefersReducedMotion ? "Reduced motion · no glide or spring animation" : "A sample to play with. Reset whenever you like.") testId="motion-preference" font-size=11 color="#78858e" text-align="center"
+      else if study == "lab"
+        column width="100%" height="100%" box-sizing="border-box" padding-top="env(safe-area-inset-top, 0px)" padding-bottom="env(safe-area-inset-bottom, 0px)" background-color="#0d0d0d" color="#e7e7e7" color-scheme="dark" accent-color="#dddddd"
+          row padding="12px 16px" gap=8 align-items="center" justify-content="space-between" flex-shrink=0
+            column gap=4
+              text "ANSUZ" letter-spacing="0.22em" font-size=16 font-weight=600
+              text "Gesture lab" font-size=12 color="#9e9e9e"
+            button press=labShowLibrary testId="lab-library" min-height=44 padding=10 border-radius=12 background-color="#232323" disabled=(orbit.lab_recording or orbit.lab_replaying)
+              text "Takes"
+            button press=showStudy("orbit") testId="lab-back" min-height=44 padding=10 border-radius=12 background-color="#232323" disabled=orbit.lab_recording
+              text "Orbit"
+          row padding="0px 16px 10px" gap=6 flex-shrink=0
+            button press=labTarget(true) testId="lab-flat" aria-pressed=labFlat flex=1 min-height=44 border-radius=12 background-color=(labFlat ? "#dddddd" : "#202020") color=(labFlat ? "#111111" : "#b7b7b7") disabled=orbit.lab_recording
+              text "2D target"
+            button press=labTarget(false) testId="lab-3d" aria-pressed=(not labFlat) flex=1 min-height=44 border-radius=12 background-color=(labFlat ? "#202020" : "#dddddd") color=(labFlat ? "#b7b7b7" : "#111111") disabled=orbit.lab_recording
+              text "3D sphere"
+          box testId="lab-stage" position="relative" flex=1 min-height=170 margin="0px 12px" overflow="hidden" border-radius=16 background-color="#0b0b0b"
+            canvas surface=world(mode=orbitMode, home=orbitHome, reduced_motion=media.prefersReducedMotion, lab=true, flat=labFlat, take=labImport, take_revision=labLoadVersion) testId="world" width="100%" height="100%" position="absolute" inset=0 touch-action="none" pointerdown=labObserve("down") pointermove=labObserve("move") pointerup=labObserve("up") message=labReceive aria-label="Gesture recording field. Flick, catch, and hold the target." tabindex=0
+              row position="absolute" left=14 right=14 top=14 justify-content="space-between" pointer-events="none"
+                text orbit.lab_status testId="lab-status" font-size=10 letter-spacing="0.1em" color="#cccccc"
+                text `${round(orbit.lab_seconds * 10) / 10}s` testId="lab-duration" font-size=12 font-variant-numeric="tabular-nums" color="#aaaaaa"
+              row position="absolute" bottom=14 left=14 right=14 justify-content="space-between" pointer-events="none"
+                text "FINGER + RESPONSE" font-size=10 letter-spacing="0.08em" color="#888888"
+                text orbit.motion testId="lab-contact" font-size=10 color="#cccccc"
+            if not labFlat
+              box position="absolute" left="50%" top="50%" width=4 height=4 background-color="#ffffff" pointer-events="none"
+            if labLibrary
+              column position="absolute" inset=0 overflow-y="auto" padding=16 gap=10 background-color="#111111"
+                text "SAVED ON THIS DEVICE" font-size=10 letter-spacing="0.12em" color="#999999"
+                if labTakes.items.length == 0
+                  text "No takes yet. Record a gesture to begin." font-size=14 color="#aaaaaa"
+                for take in labTakes.items key=take.id
+                  column padding=12 gap=8 background-color="#191919" border-radius=12
+                    text take.label font-size=15 font-weight=500
+                    if take.expected != ""
+                      text take.expected font-size=12 color="#aaaaaa"
+                    row gap=8
+                      button press=labLoad(take.json, take.expected) min-height=44 flex=1 border-radius=8 background-color="#303030"
+                        text "Load"
+                      button press=labCopy(take.json) min-height=44 flex=1 border-radius=8 background-color="#303030"
+                        text "Copy JSON"
+                      button press=labDelete(take.id) min-height=44 min-width=58 border-radius=8 background-color="#202020" aria-label="Delete this saved take"
+                        text "Delete"
+                text labTakes.error color="#e0bbbb" font-size=12
+                if labCopied
+                  text "JSON copied." font-size=12 color="#cccccc"
+          if not labLibrary
+            column padding="10px 16px 14px" gap=8 flex-shrink=0
+              row gap=6
+                if orbit.lab_recording or orbit.lab_replaying
+                  button press=labCommand("stop") testId="lab-stop" flex=1 min-height=44 border-radius=10 background-color="#dddddd" color="#111111"
+                    text "Stop"
+                else
+                  button press=labRecord testId="lab-record" flex=1 min-height=44 border-radius=10 background-color="#dddddd" color="#111111" disabled=(not labTakes.ready)
+                    text "Record"
+                button press=labCommand("replay") testId="lab-replay" flex=1 min-height=44 border-radius=10 background-color="#252525" disabled=(not orbit.lab_ready or orbit.lab_recording or orbit.lab_replaying)
+                  text "Replay"
+                button press=labCommand("reset") testId="lab-reset" min-width=64 min-height=44 border-radius=10 background-color="#252525" disabled=orbit.lab_recording
+                  text "Center"
+              input value=labNote input=labEditNote testId="lab-note" placeholder="What should this gesture do?" aria-label="Expected gesture behavior" min-height=44 padding=10 border-radius=10 background-color="#191919" color="#dddddd" font-size=13 disabled=(orbit.lab_recording or orbit.lab_replaying)
+              text (orbit.lab_recording ? "Recording finger input and response · up to 20s" : "Record → flick → catch → tiny drag → hold → Stop") testId="lab-help" font-size=11 color="#aaaaaa"
+              if labSaveError != ""
+                text labSaveError font-size=12 color="#e0bbbb"
+                row gap=8
+                  button press=labSaveAgain min-height=44 flex=1 background-color="#252525"
+                    text "Retry save"
+                  button press=labCopy(labTrace) min-height=44 flex=1 background-color="#252525"
+                    text "Copy unsaved JSON"
+              if orbit.lab_error != ""
+                text orbit.lab_error font-size=12 color="#e0bbbb"
       else
         column width="100%" height="100%" box-sizing="border-box" padding-top="env(safe-area-inset-top, 0px)" padding-bottom="env(safe-area-inset-bottom, 0px)" background-color="#0d0d0d" color="#e7e7e7" color-scheme="dark" accent-color="#dddddd"
           row padding="16px" gap=8 align-items="center" justify-content="space-between" flex-shrink=0
             column gap=4
               text "ANSUZ" letter-spacing="0.22em" font-size=16 font-weight=600
               text "Orbital playground" font-size=12 color="#9e9e9e"
+            button press=openLab testId="gesture-lab" min-height=44 padding=10 border-radius=12 background-color="#232323"
+              text "Lab"
             button press=showStudy("touch") testId="touch-study" min-height=44 padding=10 border-radius=12 background-color="#232323" aria-label="Open the original touch playground"
-              text "2D study"
+              text "2D"
             button press=orbitReset testId="orbit-reset" min-height=44 padding=10 border-radius=12 background-color="#232323" aria-label="Reset orbital orientation"
               text "Reset"
           row padding="0px 20px 12px" gap=6 flex-shrink=0
@@ -151,6 +291,6 @@ component Ansuz
                 text orbit.cell testId="orbit-cell" font-variant-numeric="tabular-nums" font-size=19 font-weight=500
               column gap=4 align-items="flex-end"
                 text "ALTITUDE / LOCKED" font-size=10 letter-spacing="0.1em" color="#898989"
-                text `${round(orbit.altitude * 10) / 10} UNITS` testId="orbit-altitude" font-variant-numeric="tabular-nums" font-size=11 color="#b7b7b7"
+                text `${round(orbit.altitude * 10) / 10} ${orbit.altitude == 1 ? "UNIT" : "UNITS"}` testId="orbit-altitude" font-variant-numeric="tabular-nums" font-size=11 color="#b7b7b7"
             text orbit.mode testId="orbit-state" font-size=12 color="#aaaaaa"
             text (media.prefersReducedMotion ? "Drag to revolve · reduced motion, no drift" : "Drag to revolve · lift to drift · touch to catch") testId="orbit-help" font-size=12 color="#aaaaaa"

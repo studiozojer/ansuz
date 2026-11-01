@@ -1,0 +1,17 @@
+---
+id: ansuz/strata/004-gesture-lab
+title: "A gesture can become a reproducible record"
+captured: 2026-10-31
+baseline: a3bb917
+description: "Adds recorded input, simulated response and expected behavior to the interaction studies."
+edges:
+  - target: ansuz/strata/003-orbital-gestures
+    type: follows
+    note: "A reported physical catch/skip problem motivates recording the actual interaction."
+---
+
+David clarified that the perceived seam problem could instead be the beginning of a new contact during drift: a stationary contact did not catch, and a tiny movement followed by a hold could skip forward. Hostless and browser tests could not reproduce the physical delivery problem. A native trace showed a gap between platform began events and receipt by the canvas. A scoped scroll-container patch is included, with physical confirmation still outstanding.
+
+The new Lab lets a person record one demonstration and attach the behavior they wanted. A 2D target and 3D sphere run the same motion function. Takes preserve input and simulated response separately, can be replayed in either view, and are stored locally without touching the reading library. Observer events and simulation samples remain distinct; neither is described as raw digitizer or displayed-frame measurement. The first format is primary-pointer only and is not a general input standard.
+
+David proposed a reusable Expo module for iOS, Android and web so agents can use human recordings with tools such as Argent and Expo Simulator. That is an extraction direction, not a claim that the native Exact lab is already an Expo module. The next boundary is a shared trace with framework adapters and separately identified application versus device replay. User intent, observed behavior, replay results and derived analyses should retain their own provenance.

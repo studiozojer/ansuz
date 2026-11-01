@@ -12,6 +12,22 @@ The original card study remains available unchanged apart from its navigation he
 
 Recognition, pinch anchoring and the held transform use Exact's native `transformDragFor` binding. Contract supplies the destination on release; there is no per-frame application pointer loop and no transition input lock. The current glide is a bounded spring projection, not a physical friction model. The sample is ephemeral and resets on relaunch. It is not an authored reading.
 
+## Gesture lab
+
+Open **Lab** from the orbital screen. Choose **2D target** or **3D sphere**, enter what should happen, press **Record**, perform the gesture in the field, then press **Stop**. A take stops automatically after 20 seconds and saves locally. **Replay** restores its starting state and runs the recorded primary-pointer input through the same motion function. You can compare the take in either view. Touching the field interrupts replay. **Takes** lists saved recordings with **Load**, **Copy JSON**, and **Delete** controls. Capture a flick, a new contact, a tiny drag, and a stationary hold as one take to preserve their timing.
+
+Each take separates canvas observer events from the processed 120 Hz input and simulated response. Version 2 also preserves each frame's viewport and reduced-motion preference; version 1 takes remain readable. Recording is limited to 2,400 frames, 4,800 observer events and twelve saved takes, in a separate `app:/data/gesture-takes.json` file capped at 8 MiB. Saves are atomic; failed writes preserve the previous library and leave the unsaved take available for retry/export. Unreadable storage is preserved. Neither the reading library nor Zhouyi is accessed.
+
+This is a diagnostic prototype, not yet a reusable Expo module. Replay covers primary-pointer input; it does not capture keyboard controls, all multi-touch contacts, or raw digitizer data. Observer up includes cancellation. Recorded response is simulation state, not measured displayed frames. Replaying delivered input cannot diagnose a delay before the app received it; physical delivery needs its own trace. A community Expo package with a shared schema and automation adapters is being designed separately.
+
+The `exact-canvas-contact.patch` disables the containing iOS scroll view's content-touch delay when hit-testing an input-owning canvas, preserving the default for other content. A pre-patch physical trace showed began events before the canvas received them. The patch compiles and is installed on the phone, but post-patch physical timing and the user's reported skipping still need confirmation.
+
+Lab verification on 2026-10-31: 32 hostless Rust tests pass, including per-frame replay across viewport changes, legacy imports, malformed-import preservation, capture bounds, replay interruption and failed-write preservation. Contract compilation reports no diagnostics. A Chromium touch walkthrough checks a nine-second recording, 2D/3D replay, JSON export, loading beyond the engine message-size limit, persistence after reload and 320-point controls. The updated signed build installed and launched on the paired iPhone 16 Pro. Android capture and automation replay have not been implemented or tested.
+
+```sh
+bun ansuz/tools/check-lab.mjs http://localhost:8768
+```
+
 ## Run
 
 Initialize the pinned SDK and install its tools (Bun 1.4.2 was used):
@@ -45,7 +61,7 @@ npm run build:ios:local
 
 To choose a particular phone, append `-- --phone "your phone name"`. If the right Bun version isn't on PATH, set `BUN=/path/to/bun` for the npm command. The underlying command is `bun ansuz/exact.mjs ios --device --run`: Exact builds, signs, installs, and launches the native app. It does not use `expo run:ios`, Metro, or Expo Go. This installs alongside Zhouyi, with separate local storage.
 
-Both local and EAS build commands first run `scripts/patch-exact.sh`. The tracked `exact-xcode26.patch` fixes a Swift name collision and removes unsupported iOS 27 audio APIs while retaining the existing interruption handler. `exact-contact-catch.patch` makes exclusive manipulation handles (`touch-action="none"`) hold their displayed transform on contact in iOS and web, while preserving tap/pan recognition. On iOS, transform targets are hit-tested at their animated position. These patches deliberately leave the SDK checkout modified; the gitlink remains pinned. The script accepts already-applied patches and refuses a different SDK revision. Revisit both patches when upgrading Exact.
+Both local and EAS build commands first run `scripts/patch-exact.sh`. The tracked `exact-xcode26.patch` fixes a Swift name collision and removes unsupported iOS 27 audio APIs while retaining the existing interruption handler. `exact-contact-catch.patch` makes exclusive manipulation handles (`touch-action="none"`) hold their displayed transform on contact in iOS and web, while preserving tap/pan recognition. On iOS, transform targets are hit-tested at their animated position. These patches deliberately leave the SDK checkout modified; the gitlink remains pinned. The script accepts already-applied patches and refuses a different SDK revision. Revisit all patches when upgrading Exact.
 
 ## Install on iPhone with Expo EAS
 
@@ -101,4 +117,4 @@ The fixed dark colors intentionally retain the requested visual direction and pr
 
 Installed locally on 2026-10-31: [Expo animation](https://github.com/expo/skills/tree/main/plugins/expo/skills/expo-animation), [Expo native UI](https://github.com/expo/skills/tree/main/plugins/expo/skills/expo-native-ui), [Software Mansion React Native best practices](https://github.com/software-mansion-labs/skills/tree/main/skills/react-native-best-practices), and [Three.js interaction](https://github.com/CloudAI-X/threejs-skills/tree/main/skills/threejs-interaction). These are agent guidance, not application dependencies. Their interruption, gesture-ownership and device-verification principles inform this playground; React Native and Three.js code recipes do not run in Exact.
 
-SDK revision: `4e9000abbdaa8315ae864cdb8253af143aac510c`, with the tracked Xcode compatibility and contact-catch patches.
+SDK revision: `4e9000abbdaa8315ae864cdb8253af143aac510c`, with the tracked Xcode compatibility, contact-catch and canvas-contact patches.

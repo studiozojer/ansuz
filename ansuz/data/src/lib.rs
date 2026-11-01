@@ -5,6 +5,8 @@ use exact_runner::{Answer, DataError, DataSource, Outcome, Store, Value};
 use serde_json::{json, Value as Json};
 use std::collections::BTreeSet;
 
+mod gestures;
+
 const DIRECTORY: &str = "app:/data";
 const FILE: &str = "surface-notes.json";
 const PATH: &str = "app:/data/surface-notes.json";
@@ -23,6 +25,7 @@ enum Pending {
 
 #[derive(Default)]
 pub struct AppData {
+    gestures: gestures::Gestures,
     document: Option<Json>,
     pending: Option<Pending>,
     load_error: String,
@@ -221,6 +224,9 @@ impl DataSource for AppData {
     }
 
     fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+        if gestures::Gestures::owns(source) {
+            return Ok(self.gestures.query(source));
+        }
         match source {
             "loadSurfaceNotes" => Ok(library_value(&empty(), "", false)),
             "saveSurfaceNote" => Ok(saved(false, "")),
@@ -229,6 +235,9 @@ impl DataSource for AppData {
     }
 
     fn answer(&mut self, _: &mut Store, source: &str, args: &[Value]) -> Result<Answer, DataError> {
+        if gestures::Gestures::owns(source) {
+            return Ok(self.gestures.answer(source, args));
+        }
         match source {
             "loadSurfaceNotes" => {
                 if let Some(document) = &self.document {
@@ -277,6 +286,9 @@ impl DataSource for AppData {
         _: &[Value],
         outcome: Outcome,
     ) -> Result<Answer, DataError> {
+        if gestures::Gestures::owns(source) {
+            return Ok(self.gestures.parse(source, outcome));
+        }
         let Some(pending) = self.pending.take() else {
             return Err(DataError::Unavailable(
                 "No pending note storage operation.".into(),
