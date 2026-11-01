@@ -15,3 +15,4 @@ Named checkpoints at changes of direction. Git retains the implementation; these
 | [003 — orbital gestures](strata/003-orbital-gestures.爻) | Commit introducing this record; prior main `4b4f193` | Two orbital experiments, fixed reticle, retained 2D study. |
 | [004 — gesture lab](strata/004-gesture-lab.爻) | Commit introducing this record; prior branch `a3bb917` | Record human input, expected behavior and simulated response; replay in 2D/3D. |
 | [005 — elemental gestures](strata/005-elemental-gestures.爻) | Commit introducing this record; prior branch `26bc52c` | Fire, water, earth and air exercises with recorded recognition and response. |
+| [006 — recording history](strata/006-recording-history.爻) | Commit introducing this record; prior branch `326c08f` | Separate Snapback archive, replay downloads and revocable agent access. |

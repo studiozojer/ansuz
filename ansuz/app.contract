@@ -36,6 +36,28 @@ shape GestureSaved
   ok: bool
   error: string
 
+shape CloudTake
+  id: string
+  label: string
+  expected: string
+  digest: string
+  asset: string
+  captured: number
+
+shape RecordingCloud
+  items: CloudTake[]
+  connected: bool
+  status: string
+  error: string
+  more: bool
+  shared: bool
+  principal: string
+
+shape CloudLoaded
+  json: string
+  error: string
+  expected: string
+
 shape LabTime
   epochAtZero: number
 
@@ -53,6 +75,38 @@ component Ansuz
     if orbit.lab_element > 0
       labFlat = true
     postMessage("lab:replay", "world")
+  state cloudTab = false
+  state cloudEmail = ""
+  state cloudPassword = ""
+  action cloudChooseTab(value: bool)
+    cloudTab = value
+  resource cloudState = recordingCloud() as shape RecordingCloud
+  mutation cloudResult as shape RecordingCloud refreshes cloudState
+  mutation cloudDownload as shape CloudLoaded then cloudReceived
+  derive cloudJson = match cloudDownload { case some(t) => t.json, case none => "" }
+  derive cloudNote = match cloudDownload { case some(t) => t.expected, case none => "" }
+  derive cloudLoadError = match cloudDownload { case some(t) => t.error, case none => "" }
+  action cloudEmailChange(text: string)
+    cloudEmail = text
+  action cloudPasswordChange(text: string)
+    cloudPassword = text
+  action cloudConnect(signup: bool)
+    send cloudResult = connectRecordings(cloudEmail, cloudPassword, signup)
+    cloudPassword = ""
+  action cloudSync
+    send cloudResult = syncRecordings()
+  action cloudMore
+    send cloudResult = moreRecordings()
+  action cloudDisconnect
+    cloudDownload = none
+    send cloudResult = disconnectRecordings()
+  action cloudShare
+    send cloudResult = shareRecordings(not cloudState.shared)
+  action cloudFetch(digest: string)
+    send cloudDownload = loadCloudTake(digest)
+  action cloudReceived
+    if cloudJson != ""
+      labLoad(cloudJson, cloudNote)
   state labNote = ""
   state labTrace = ""
   state labImport = ""
@@ -237,24 +291,66 @@ component Ansuz
               box position="absolute" left="50%" top="50%" width=4 height=4 background-color="#ffffff" pointer-events="none"
             if labLibrary
               column position="absolute" inset=0 overflow-y="auto" padding=16 gap=10 background-color="#111111"
-                text "SAVED ON THIS DEVICE" font-size=10 letter-spacing="0.12em" color="#999999"
-                if labTakes.items.length == 0
-                  text "No takes yet. Record a gesture to begin." font-size=14 color="#aaaaaa"
-                for take in labTakes.items key=take.id
-                  column padding=12 gap=8 background-color="#191919" border-radius=12
-                    text take.label font-size=15 font-weight=500
-                    if take.expected != ""
-                      text take.expected font-size=12 color="#aaaaaa"
+                row gap=8
+                  button press=cloudChooseTab(false) min-height=44 flex=1 background-color=(cloudTab ? "#191919" : "#353535") border-radius=8
+                    text "Device"
+                  button press=cloudChooseTab(true) testId="cloud-tab" min-height=44 flex=1 background-color=(cloudTab ? "#353535" : "#191919") border-radius=8
+                    text "Cloud"
+                if cloudTab
+                  text "ANSUZ RECORDING HISTORY" font-size=10 letter-spacing="0.12em" color="#999999"
+                  if not cloudState.connected
+                    text "Connect to keep your takes across devices. Recording stays available offline." font-size=13 color="#aaaaaa"
+                    input type="email" value=cloudEmail input=cloudEmailChange testId="cloud-email" placeholder="Email" aria-label="Recording account email" min-height=44 padding=10 background-color="#252525" border-radius=8
+                    input type="password" value=cloudPassword input=cloudPasswordChange testId="cloud-password" placeholder="Password" aria-label="Recording account password" min-height=44 padding=10 background-color="#252525" border-radius=8
                     row gap=8
-                      button press=labLoad(take.json, take.expected) min-height=44 flex=1 border-radius=8 background-color="#303030"
-                        text "Load"
-                      button press=labCopy(take.json) min-height=44 flex=1 border-radius=8 background-color="#303030"
-                        text "Copy JSON"
-                      button press=labDelete(take.id) min-height=44 min-width=58 border-radius=8 background-color="#202020" aria-label="Delete this saved take"
-                        text "Delete"
-                text labTakes.error color="#e0bbbb" font-size=12
-                if labCopied
-                  text "JSON copied." font-size=12 color="#cccccc"
+                      button press=cloudConnect(false) testId="cloud-login" min-height=44 flex=1 background-color="#353535" border-radius=8 disabled=(pending(cloudResult) or pending(cloudDownload))
+                        text "Sign in"
+                      button press=cloudConnect(true) testId="cloud-signup" min-height=44 flex=1 background-color="#353535" border-radius=8 disabled=(pending(cloudResult) or pending(cloudDownload))
+                        text "Create account"
+                  else
+                    text "Sync uploads saved device takes and refreshes your history." font-size=12 color="#aaaaaa"
+                    row gap=8
+                      button press=cloudSync testId="cloud-sync" min-height=44 flex=1 background-color="#dddddd" color="#111111" border-radius=8 disabled=(pending(cloudResult) or pending(cloudDownload))
+                        text "Sync"
+                      button press=cloudDisconnect min-height=44 flex=1 background-color="#252525" border-radius=8 disabled=(pending(cloudResult) or pending(cloudDownload))
+                        text "Disconnect"
+                    button press=cloudShare testId="cloud-share" min-height=44 background-color="#252525" border-radius=8 disabled=(pending(cloudResult) or pending(cloudDownload))
+                      text (cloudState.shared ? "Revoke agent access" : "Share history with studio agent")
+                    text (cloudState.shared ? "Studio agent can read and download your original takes." : "History is private to this account.") font-size=12 color="#aaaaaa"
+                    for take in cloudState.items key=take.id
+                      column padding=12 gap=8 background-color="#191919" border-radius=12
+                        text take.label font-size=15 font-weight=500
+                        text formatDate(take.captured, 0, "iso") font-size=10 color="#999999"
+                        text take.expected font-size=12 color="#aaaaaa"
+                        button press=cloudFetch(take.digest) min-height=44 background-color="#303030" border-radius=8 disabled=(pending(cloudResult) or pending(cloudDownload))
+                          text "Load for replay"
+                    if cloudState.more
+                      button press=cloudMore min-height=44 background-color="#252525" border-radius=8 disabled=(pending(cloudResult) or pending(cloudDownload))
+                        text "Older takes"
+                  if pending(cloudResult) or pending(cloudDownload)
+                    text "Working…" font-size=12 color="#dddddd"
+                  text cloudState.status font-size=12 color="#aaaaaa"
+                  text cloudState.error font-size=12 color="#e0bbbb"
+                  text cloudLoadError font-size=12 color="#e0bbbb"
+                else
+                  text "SAVED ON THIS DEVICE · SYNC FROM CLOUD TAB" font-size=10 letter-spacing="0.08em" color="#999999"
+                  if labTakes.items.length == 0
+                    text "No takes yet. Record a gesture to begin." font-size=14 color="#aaaaaa"
+                  for take in labTakes.items key=take.id
+                    column padding=12 gap=8 background-color="#191919" border-radius=12
+                      text take.label font-size=15 font-weight=500
+                      if take.expected != ""
+                        text take.expected font-size=12 color="#aaaaaa"
+                      row gap=8
+                        button press=labLoad(take.json, take.expected) min-height=44 flex=1 border-radius=8 background-color="#303030"
+                          text "Load"
+                        button press=labCopy(take.json) min-height=44 flex=1 border-radius=8 background-color="#303030"
+                          text "Copy JSON"
+                        button press=labDelete(take.id) min-height=44 min-width=58 border-radius=8 background-color="#202020" aria-label="Delete this saved take"
+                          text "Delete"
+                  text labTakes.error color="#e0bbbb" font-size=12
+                  if labCopied
+                    text "JSON copied." font-size=12 color="#cccccc"
           if not labLibrary
             column padding="10px 16px 14px" gap=8 flex-shrink=0
               row gap=6

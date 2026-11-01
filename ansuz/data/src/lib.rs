@@ -5,6 +5,7 @@ use exact_runner::{Answer, DataError, DataSource, Outcome, Store, Value};
 use serde_json::{json, Value as Json};
 use std::collections::BTreeSet;
 
+mod cloud;
 mod gestures;
 
 const DIRECTORY: &str = "app:/data";
@@ -26,6 +27,7 @@ enum Pending {
 #[derive(Default)]
 pub struct AppData {
     gestures: gestures::Gestures,
+    cloud: cloud::Cloud,
     document: Option<Json>,
     pending: Option<Pending>,
     load_error: String,
@@ -220,10 +222,13 @@ impl DataSource for AppData {
     }
 
     fn grants(&self) -> &str {
-        "fs.read app:/data\nfs.write app:/data"
+        "fs.read app:/data\nfs.write app:/data\nnet.fetch https://ansuz.jera.ink\nsecret.keep ansuz-recordings-session-v1"
     }
 
     fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+        if cloud::Cloud::owns(source) {
+            return Ok(self.cloud.query(source));
+        }
         if gestures::Gestures::owns(source) {
             return Ok(self.gestures.query(source));
         }
@@ -234,7 +239,17 @@ impl DataSource for AppData {
         }
     }
 
-    fn answer(&mut self, _: &mut Store, source: &str, args: &[Value]) -> Result<Answer, DataError> {
+    fn answer(
+        &mut self,
+        store: &mut Store,
+        source: &str,
+        args: &[Value],
+    ) -> Result<Answer, DataError> {
+        if cloud::Cloud::owns(source) {
+            return Ok(self
+                .cloud
+                .answer(store, source, args, self.gestures.takes()));
+        }
         if gestures::Gestures::owns(source) {
             return Ok(self.gestures.answer(source, args));
         }
@@ -281,11 +296,14 @@ impl DataSource for AppData {
 
     fn parse(
         &mut self,
-        _: &mut Store,
+        store: &mut Store,
         source: &str,
         _: &[Value],
         outcome: Outcome,
     ) -> Result<Answer, DataError> {
+        if cloud::Cloud::owns(source) {
+            return Ok(self.cloud.parse(store, outcome));
+        }
         if gestures::Gestures::owns(source) {
             return Ok(self.gestures.parse(source, outcome));
         }

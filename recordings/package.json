@@ -1,0 +1,5 @@
+{
+  "name": "ansuz-recordings", "private": true, "type": "module",
+  "scripts": {"check":"snapback4 check", "test":"node --test tests/*.test.mjs", "dev":"snapback4 dev --port 4431", "agent":"node scripts/agent.mjs"},
+  "dependencies": {"snapback4":"0.4.33"}, "overrides":{"undici":"8.12.2"}
+}
