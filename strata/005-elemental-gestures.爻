@@ -1,0 +1,17 @@
+---
+id: ansuz/strata/005-elemental-gestures
+title: "Learning to make a gesture mean something"
+captured: 2026-10-31
+baseline: 26bc52c
+description: "Four elemental exercises inside the 2D recording lab."
+edges:
+  - target: ansuz/strata/004-gesture-lab
+    type: follows
+    note: "The recorder captures human attempts and the recognizer's response separately."
+---
+
+David deferred packaging the recorder and proposed elemental transformations: a match-like fire stroke after steady contact, a water vortex around the object's original center of gravity, deliberate earth poses inspired by RUMBLE, and continuous fanning that moves an air-particle field. He asked to remember Meta XR for recorder inspiration and to ask Sol about neblis.io's fluid dynamics. Those references and the verbatim source message are preserved in the commons.
+
+The first pass uses explicit element selection and one-finger input. Fire combines a dwell, a slow preparation and a faster finish; earth uses brace, lift and finishing hold with a visible target. Water accumulates winding and stirs a particle body with radial attraction and separation. Air transfers movement to nearby particles. Pixels use a bounded reusable pool. These are simulations for exploring feel, not a claim of incompressible fluid dynamics, measured force or equivalence to RUMBLE's full-body experience.
+
+Recordings retain the selected experiment and its model version, observed input and per-frame response summaries. Replay recomputes recognition and response; the user's gesture is not replaced by the inferred spell. Old motion takes stay readable. The underlying reading model and provenance are unchanged. Native feel and final gesture vocabulary remain open to David's feedback.

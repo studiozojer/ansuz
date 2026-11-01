@@ -242,3 +242,15 @@ fn legacy_top_and_new_sides_keep_separate_ids_and_survive_reload() {
     next["placements"][1]["face"] = json!(-1);
     assert!(validate(&next).is_err());
 }
+
+#[test]
+fn restored_account_cannot_publish_rows_under_the_signed_out_resource_key() {
+    let mut data = AppData::default();
+    let mut store = Store::new(cloud::GRANTS, []);
+    store.set("ansuz-https-ansuz-jera-ink-atproto-v1", &json!({"principal":"did:plc:aaaaaaaaaaaaaaaaaaaaaaaa","token":"cached","expiresAt":9000000000000u64}).to_string()).unwrap();
+    data.answer(&mut store, "recordingCloud", &[]).unwrap();
+    assert_eq!(data.cloud.owner(), "did:plc:aaaaaaaaaaaaaaaaaaaaaaaa");
+    assert_eq!(data.query("gestureTakes", &[Value::str("")]).unwrap(), gestures::Gestures::hidden());
+    assert!(matches!(data.answer(&mut store, "gestureTakes", &[Value::str("")]).unwrap(), Answer::Now(_)));
+    assert!(matches!(data.answer(&mut store, "gestureTakes", &[Value::str("did:plc:aaaaaaaaaaaaaaaaaaaaaaaa")]).unwrap(), Answer::Later(_)));
+}

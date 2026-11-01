@@ -281,3 +281,152 @@ fn reduced_motion_keeps_quick_flick_displacement_but_not_drift_or_hover() {
         "Hover after release rotated the sphere"
     );
 }
+
+#[test]
+fn cell_changes_replace_the_outline_without_morphing_unrelated_edges() {
+    for mode in [0, 1] {
+        let mut s = sim(mode);
+        let mut changes = 0;
+        let mut seams = 0;
+        let mut previous = target(orientation(&s), mode == 1).unwrap();
+        let mut q = orientation(&s);
+        pointer(&mut s, PointerPhase::Down, 0., 0.);
+        for i in 0..400 {
+            s.input(InputEvent::Pointer {
+                id: 7,
+                phase: PointerPhase::Move,
+                x: 195.,
+                y: 250. + (i + 1) as f32 * 12.,
+                dx: 0.,
+                dy: 12.,
+                buttons: 0,
+                at_ms: 0.,
+                player: 0,
+            });
+            // Inspect every tick: the interpolation reset intentionally lasts
+            // one tick, so a later frame sample can miss it.
+            s.advance_with(36. + (i + 1) as f64 * 16., Clock::Seekable, |w, _| {
+                let next = w.resource::<Navigation>().orientation;
+                let delta = next.angle_between(q);
+                assert!(delta < 0.011, "Navigation must stay continuous across faces: {delta}");
+                let cell = target(next, mode == 1).unwrap();
+                for j in 0..4 * EDGE_STEPS {
+                    let e = w.named(&format!("focus-{j}")).unwrap();
+                    assert_eq!(w.is_fresh(e), cell != previous,
+                        "Only a changed cell replaces edge identities; within-cell motion interpolates");
+                }
+                changes += usize::from(cell != previous);
+                seams += usize::from(cell.face != previous.face);
+                previous = cell;
+                q = next;
+            });
+        }
+        assert!(
+            changes > 80 && seams >= 2,
+            "Exercise actual cell and face crossings"
+        );
+    }
+}
+
+#[test]
+fn reported_negative_x_to_negative_y_join_keeps_the_view_continuous() {
+    let from = Cell {
+        face: 3,
+        u: 25,
+        v: 1,
+    };
+    let toward = Cell {
+        face: 5,
+        u: 1,
+        v: 24,
+    };
+    let camera = base_camera();
+    let base_hit = ray_sphere(camera.position, camera.rotation * -Vec3::Z)
+        .unwrap()
+        .normalize();
+    let start = Quat::from_rotation_arc(base_hit, cell_point(from, 0.5, 0.5, 1.));
+    assert_eq!(target(start, false), Some(from));
+    let desired = cell_point(toward, 0.5, 0.5, 1.);
+    let step = [Vec2::X, -Vec2::X, Vec2::Y, -Vec2::Y]
+        .into_iter()
+        .map(|d| d * 0.0108)
+        .min_by(|a, b| {
+            (turn(start, *a) * base_hit)
+                .distance(desired)
+                .total_cmp(&(turn(start, *b) * base_hit).distance(desired))
+        })
+        .unwrap();
+    for flying in [false, true] {
+        let mut q = start;
+        let mut crossed = false;
+        let mut cell = from;
+        for _ in 0..20 {
+            let next = turn(q, step);
+            let (before_camera, before_globe) = poses(q, flying);
+            let (after_camera, after_globe) = poses(next, flying);
+            // A nearby fixed surface landmark must move continuously in view
+            // space, including the exact -X -> -Y face change David reported.
+            for c in [from, toward] {
+                let p = cell_point(c, 0.5, 0.5, RADIUS);
+                let before = before_camera.rotation.inverse()
+                    * (before_globe.rotation * p - before_camera.position);
+                let after = after_camera.rotation.inverse()
+                    * (after_globe.rotation * p - after_camera.position);
+                assert!(before.distance(after) < 0.12);
+            }
+            let next_cell = target(next, flying).unwrap();
+            crossed |= cell.face == 3 && next_cell.face == 5;
+            cell = next_cell;
+            q = next;
+        }
+        assert!(crossed, "Must exercise the reported -X to -Y boundary");
+    }
+}
+
+#[test]
+fn fresh_pointer_ids_catch_drift_and_tiny_drag_stays_put() {
+    for mode in [0, 1] {
+        let mut s = sim(mode);
+        let event = |id, phase, x, dx| InputEvent::Pointer {
+            id,
+            phase,
+            x,
+            y: 250.,
+            dx,
+            dy: 0.,
+            buttons: if matches!(phase, PointerPhase::Down | PointerPhase::Move) {
+                1
+            } else {
+                0
+            },
+            at_ms: 0.,
+            player: 0,
+        };
+        s.input(event(1, PointerPhase::Down, 100., 0.));
+        s.run(16.);
+        s.input(event(1, PointerPhase::Move, 180., 80.));
+        s.run(16.);
+        s.input(event(1, PointerPhase::Up, 180., 0.));
+        s.run(80.);
+        assert!(s.world().resource::<Navigation>().velocity.length() > 0.01);
+        let before = orientation(&s);
+        s.input(event(2, PointerPhase::Down, 220., 0.));
+        s.run(16.);
+        assert_eq!(
+            orientation(&s),
+            before,
+            "Fresh contact must catch without movement"
+        );
+        s.run(100.);
+        assert_eq!(orientation(&s), before);
+        s.input(event(2, PointerPhase::Move, 222., 2.));
+        s.run(16.);
+        let held = orientation(&s);
+        assert!(
+            held.angle_between(before) < 0.003,
+            "Tiny drag must not inherit prior drift"
+        );
+        s.run(300.);
+        assert_eq!(orientation(&s), held, "Held finger must not skip forward");
+    }
+}

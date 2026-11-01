@@ -7,7 +7,7 @@ if [[ "$(git -C "$exact_sdk" rev-parse HEAD)" != 4e9000abbdaa8315ae864cdb8253af1
   echo "Revisit the Ansuz patches before changing the Exact SDK pin." >&2
   exit 1
 fi
-for exact_patch in "$PWD/tooling/patches/exact-xcode26.patch" "$PWD/tooling/patches/exact-contact-catch.patch"; do
+for exact_patch in "$PWD/tooling/patches/exact-xcode26.patch" "$PWD/tooling/patches/exact-contact-catch.patch" "$PWD/tooling/patches/exact-canvas-contact.patch"; do
   if git -C "$exact_sdk" apply --reverse --check "$exact_patch" 2>/dev/null; then
     continue
   fi

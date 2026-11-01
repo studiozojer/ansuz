@@ -5,6 +5,9 @@ use exact_runner::{Answer, DataError, DataSource, Outcome, Store, Value};
 use serde_json::{json, Value as Json};
 use std::collections::BTreeSet;
 
+mod cloud;
+mod gestures;
+
 const DIRECTORY: &str = "app:/data";
 const FILE: &str = "surface-notes.json";
 const PATH: &str = "app:/data/surface-notes.json";
@@ -23,6 +26,8 @@ enum Pending {
 
 #[derive(Default)]
 pub struct AppData {
+    gestures: gestures::Gestures,
+    cloud: cloud::Cloud,
     document: Option<Json>,
     pending: Option<Pending>,
     load_error: String,
@@ -217,10 +222,19 @@ impl DataSource for AppData {
     }
 
     fn grants(&self) -> &str {
-        "fs.read app:/data\nfs.write app:/data"
+        cloud::GRANTS
     }
 
-    fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+    fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
+        if cloud::Cloud::owns(source) {
+            return Ok(self.cloud.query(source));
+        }
+        if gestures::Gestures::owns(source) {
+            if source == "gestureTakes" && args.first().and_then(Value::as_str).unwrap_or("") != self.cloud.owner() {
+                return Ok(gestures::Gestures::hidden());
+            }
+            return Ok(self.gestures.query(source, &self.cloud.owner()));
+        }
         match source {
             "loadSurfaceNotes" => Ok(library_value(&empty(), "", false)),
             "saveSurfaceNote" => Ok(saved(false, "")),
@@ -228,7 +242,32 @@ impl DataSource for AppData {
         }
     }
 
-    fn answer(&mut self, _: &mut Store, source: &str, args: &[Value]) -> Result<Answer, DataError> {
+    fn answer(
+        &mut self,
+        store: &mut Store,
+        source: &str,
+        args: &[Value],
+    ) -> Result<Answer, DataError> {
+        if cloud::Cloud::owns(source) {
+            return Ok(self.cloud.answer(
+                store,
+                source,
+                args,
+                if source == "syncRecordings" {
+                    self.gestures.takes(&self.cloud.owner())
+                } else {
+                    None
+                },
+            ));
+        }
+        if gestures::Gestures::owns(source) {
+            // Never publish one account's rows under a different resource key,
+            // including the empty key while authorization is still restoring.
+            if source == "gestureTakes" && args.first().and_then(Value::as_str).unwrap_or("") != self.cloud.owner() {
+                return Ok(Answer::Now(gestures::Gestures::hidden()));
+            }
+            return Ok(self.gestures.answer(source, args, &self.cloud.owner()));
+        }
         match source {
             "loadSurfaceNotes" => {
                 if let Some(document) = &self.document {
@@ -272,11 +311,23 @@ impl DataSource for AppData {
 
     fn parse(
         &mut self,
-        _: &mut Store,
+        store: &mut Store,
         source: &str,
-        _: &[Value],
+        args: &[Value],
         outcome: Outcome,
     ) -> Result<Answer, DataError> {
+        if cloud::Cloud::owns(source) {
+            return Ok(self
+                .cloud
+                .parse(store, &cloud::request_key(source, args), source, outcome));
+        }
+        if gestures::Gestures::owns(source) {
+            let answer = self.gestures.parse(source, outcome, &self.cloud.owner());
+            if source == "gestureTakes" && matches!(answer, Answer::Now(_)) && args.first().and_then(Value::as_str).unwrap_or("") != self.cloud.owner() {
+                return Ok(Answer::Now(gestures::Gestures::hidden()));
+            }
+            return Ok(answer);
+        }
         let Some(pending) = self.pending.take() else {
             return Err(DataError::Unavailable(
                 "No pending note storage operation.".into(),

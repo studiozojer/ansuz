@@ -1,0 +1,5 @@
+.snapback/
+snapback/generated/
+node_modules/
+
+.snapback4/

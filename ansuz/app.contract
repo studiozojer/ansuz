@@ -8,9 +8,173 @@ shape OrbitHud
   mode: string
   motion: string
   altitude: number
+  lab_status: string
+  lab_seconds: number
+  lab_samples: number
+  lab_observed: number
+  lab_recording: bool
+  lab_replaying: bool
+  lab_ready: bool
+  lab_error: string
+  lab_element: number
+  element_phase: string
+  element_energy: number
+  element_charge: number
+
+shape GestureTake
+  id: string
+  label: string
+  expected: string
+  json: string
+
+shape GestureTakes
+  items: GestureTake[]
+  error: string
+  ready: bool
+  unassigned: GestureTake[]
+
+shape GestureSaved
+  ok: bool
+  error: string
+
+shape CloudTake
+  id: string
+  label: string
+  expected: string
+  digest: string
+  asset: string
+  captured: number
+
+shape RecordingCloud
+  items: CloudTake[]
+  connected: bool
+  status: string
+  error: string
+  more: bool
+  shared: bool
+  ready: bool
+  principal: string
+
+shape CloudLoaded
+  json: string
+  error: string
+  expected: string
+
+shape LabTime
+  epochAtZero: number
 
 component Ansuz
   state study = "orbit"
+  state labFlat = true
+  state labElement = 0
+  derive elementHelp = labElement == 1 ? "Hold the cube still. Draw slowly, then strike fast." : (labElement == 2 ? "Grab the cube. Trace a steady circle around its center." : (labElement == 3 ? "Hold still. Lift to the mark. Hold that pose." : "Grab the cube. Fan it back and forth through the field."))
+  action chooseElement(value: number)
+    labElement = value
+    labFlat = true
+    postMessage("lab:reset", "world")
+  action labReplay
+    labElement = orbit.lab_element
+    if orbit.lab_element > 0
+      labFlat = true
+    postMessage("lab:replay", "world")
+  state cloudTab = false
+  state cloudHandle = ""
+  state cloudRevision = 0
+  state labAccount = ""
+  state labOwner = ""
+  state showDeviceOnly = false
+  action cloudChooseTab(value: bool)
+    cloudTab = value
+  // Deliberate launch identity: never paint a kept private answer before checking the saved account.
+  resource cloudState = recordingCloud(cloudRevision, labTime.epochAtZero) as shape RecordingCloud
+  mutation cloudResult as shape RecordingCloud refreshes cloudState
+  mutation cloudDownload as shape CloudLoaded refreshes cloudState then cloudReceived
+  derive cloudJson = match cloudDownload { case some(t) => t.json, case none => "" }
+  derive cloudNote = match cloudDownload { case some(t) => t.expected, case none => "" }
+  derive cloudLoadError = match cloudDownload { case some(t) => t.error, case none => "" }
+  action cloudHandleChange(text: string)
+    cloudHandle = text
+  action cloudConnect
+    send cloudResult = connectRecordings(cloudHandle, labTime.epochAtZero + performanceNow())
+  task watchAccount when cloudState.ready and labAccount != cloudState.principal key=cloudState.principal
+    after(1, clearAccountView)
+  action clearAccountView
+    labAccount = cloudState.principal
+    labNote = ""
+    labTrace = ""
+    labImport = ""
+    labOwner = ""
+    cloudDownload = none
+    if not pending(labSaved)
+      labSaved = none
+    showDeviceOnly = false
+    postMessage("lab:forget", "world")
+  action cloudSync
+    send cloudResult = syncRecordings(labTime.epochAtZero + performanceNow())
+  action cloudMore
+    send cloudResult = moreRecordings(labTime.epochAtZero + performanceNow())
+  action cloudDisconnect
+    clearAccountView()
+    send cloudResult = disconnectRecordings(labTime.epochAtZero + performanceNow())
+    cloudRevision = cloudRevision + 1
+    refresh cloudState
+  action cloudShare
+    send cloudResult = shareRecordings(not cloudState.shared, labTime.epochAtZero + performanceNow())
+  action cloudFetch(digest: string)
+    send cloudDownload = loadCloudTake(digest, labTime.epochAtZero + performanceNow())
+  action cloudReceived
+    if cloudJson != ""
+      labLoad(cloudJson, cloudNote)
+  state labNote = ""
+  state labTrace = ""
+  state labImport = ""
+  state labLoadVersion = 0
+  state labLibrary = false
+  state labCopied = false
+  resource labTime = exactTime() as shape LabTime
+  resource labTakes = gestureTakes(cloudState.principal, cloudRevision, labTime.epochAtZero) as shape GestureTakes
+  mutation labSaved as shape GestureSaved refreshes labTakes
+  derive labSaveError = match labSaved { case some(s) => s.error, case none => "" }
+  action openLab
+    study = "lab"
+  action labTarget(flat: bool)
+    labFlat = flat
+    labElement = 0
+  action labCommand(command: string)
+    postMessage(`lab:${command}`, "world")
+  action labRecord
+    labOwner = cloudState.principal
+    labCopied = false
+    postMessage(`lab:record|${performanceNow()}`, "world")
+  action labObserve(phase: string, e: PointerEvent)
+    postMessage(`finger|${phase}|${e.pointerId}|${e.offsetX}|${e.offsetY}|${e.buttons}|${performanceNow()}`, "world")
+  action labReceive(text: string)
+    labTrace = text
+    send labSaved = saveGestureTake(text, labNote, labTime.epochAtZero + performanceNow(), labOwner)
+  action labSaveAgain
+    send labSaved = saveGestureTake(labTrace, labNote, labTime.epochAtZero + performanceNow(), labOwner)
+  action labEditNote(text: string)
+    labNote = text
+  action labShowLibrary
+    labLibrary = not labLibrary
+  action labLoad(text: string, note: string)
+    if not pending(labSaved)
+      labSaved = none
+    labTrace = text
+    labNote = note
+    labLibrary = false
+    labCopied = false
+    labImport = text
+    labLoadVersion = labLoadVersion + 1
+  action labCopy(text: string)
+    copyText(text)
+    labCopied = true
+  action claimDeviceTake(id: string)
+    send labSaved = claimGestureTake(id, cloudState.principal)
+  action toggleDeviceOnly
+    showDeviceOnly = not showDeviceOnly
+  action labDelete(id: string)
+    send labSaved = deleteGestureTake(id, cloudState.principal)
   state orbitMode = 0
   state orbitHome = 0
   resource orbit = exactSurface("world") as shape OrbitHud
@@ -108,14 +272,156 @@ component Ansuz
               button press=nudge(24, 0) testId="right" aria-label="Move right" min-width=44 min-height=44 border-radius=10
                 text "→"
             text (media.prefersReducedMotion ? "Reduced motion · no glide or spring animation" : "A sample to play with. Reset whenever you like.") testId="motion-preference" font-size=11 color="#78858e" text-align="center"
+      else if study == "lab"
+        column width="100%" height="100%" box-sizing="border-box" padding-top="env(safe-area-inset-top, 0px)" padding-bottom="env(safe-area-inset-bottom, 0px)" background-color="#0d0d0d" color="#e7e7e7" color-scheme="dark" accent-color="#dddddd"
+          row padding="12px 16px" gap=8 align-items="center" justify-content="space-between" flex-shrink=0
+            column gap=4
+              text "ANSUZ" letter-spacing="0.22em" font-size=16 font-weight=600
+              text "Gesture lab" font-size=12 color="#9e9e9e"
+            button press=labShowLibrary testId="lab-library" min-height=44 padding=10 border-radius=12 background-color="#232323" disabled=(orbit.lab_recording or orbit.lab_replaying)
+              text "Takes"
+            button press=showStudy("orbit") testId="lab-back" min-height=44 padding=10 border-radius=12 background-color="#232323" disabled=orbit.lab_recording
+              text "Orbit"
+          row padding="0px 16px 10px" gap=6 flex-shrink=0
+            button press=labTarget(true) testId="lab-flat" aria-pressed=labFlat flex=1 min-height=44 border-radius=12 background-color=(labFlat ? "#dddddd" : "#202020") color=(labFlat ? "#111111" : "#b7b7b7") disabled=(orbit.lab_recording or orbit.lab_replaying)
+              text "2D target"
+            button press=labTarget(false) testId="lab-3d" aria-pressed=(not labFlat) flex=1 min-height=44 border-radius=12 background-color=(labFlat ? "#202020" : "#dddddd") color=(labFlat ? "#b7b7b7" : "#111111") disabled=(orbit.lab_recording or orbit.lab_replaying)
+              text "3D sphere"
+          row padding="0px 12px 8px" gap=4
+            button press=chooseElement(0) testId="element-motion" flex=1 min-height=44 border-radius=8 background-color=(labElement == 0 ? "#454545" : "#202020") disabled=(orbit.lab_recording or orbit.lab_replaying)
+              text "Motion" font-size=12
+            button press=chooseElement(1) testId="element-fire" flex=1 min-height=44 border-radius=8 background-color=(labElement == 1 ? "#633528" : "#202020") disabled=(orbit.lab_recording or orbit.lab_replaying)
+              text "Fire" font-size=12
+            button press=chooseElement(2) testId="element-water" flex=1 min-height=44 border-radius=8 background-color=(labElement == 2 ? "#284559" : "#202020") disabled=(orbit.lab_recording or orbit.lab_replaying)
+              text "Water" font-size=12
+            button press=chooseElement(3) testId="element-earth" flex=1 min-height=44 border-radius=8 background-color=(labElement == 3 ? "#4b4436" : "#202020") disabled=(orbit.lab_recording or orbit.lab_replaying)
+              text "Earth" font-size=12
+            button press=chooseElement(4) testId="element-air" flex=1 min-height=44 border-radius=8 background-color=(labElement == 4 ? "#3a474b" : "#202020") disabled=(orbit.lab_recording or orbit.lab_replaying)
+              text "Air" font-size=12
+          box testId="lab-stage" position="relative" flex=1 min-height=170 margin="0px 12px" overflow="hidden" border-radius=16 background-color="#0b0b0b"
+            canvas surface=world(mode=orbitMode, home=orbitHome, reduced_motion=media.prefersReducedMotion, lab=true, flat=labFlat, element=labElement, take=labImport, take_revision=labLoadVersion) testId="world" width="100%" height="100%" position="absolute" inset=0 touch-action="none" pointerdown=labObserve("down") pointermove=labObserve("move") pointerup=labObserve("up") message=labReceive aria-label="Gesture recording field. Flick, catch, and hold the target." tabindex=0
+              row position="absolute" left=14 right=14 top=14 justify-content="space-between" pointer-events="none"
+                text orbit.lab_status testId="lab-status" font-size=10 letter-spacing="0.1em" color="#cccccc"
+                text `${round(orbit.lab_seconds * 10) / 10}s` testId="lab-duration" font-size=12 font-variant-numeric="tabular-nums" color="#aaaaaa"
+              row position="absolute" bottom=14 left=14 right=14 justify-content="space-between" pointer-events="none"
+                text "FINGER + RESPONSE" font-size=10 letter-spacing="0.08em" color="#888888"
+                text (labElement == 0 ? orbit.motion : orbit.element_phase) testId="lab-contact" font-size=10 color="#cccccc"
+            if labElement > 0
+              column position="absolute" top=38 left=14 right=14 gap=5 pointer-events="none"
+                text elementHelp font-size=12 color="#aaaaaa"
+                row gap=10
+                  text `CHARGE ${round(orbit.element_charge * 100)}%` testId="element-charge" font-size=10 color="#999999" font-variant-numeric="tabular-nums"
+                  text `ENERGY ${round(orbit.element_energy * 100)}%` testId="element-energy" font-size=10 color="#999999" font-variant-numeric="tabular-nums"
+            if not labFlat
+              box position="absolute" left="50%" top="50%" width=4 height=4 background-color="#ffffff" pointer-events="none"
+            if labLibrary
+              column position="absolute" inset=0 overflow-y="auto" padding=16 gap=10 background-color="#111111"
+                row gap=8
+                  button press=cloudChooseTab(false) min-height=44 flex=1 background-color=(cloudTab ? "#191919" : "#353535") border-radius=8
+                    text "Device"
+                  button press=cloudChooseTab(true) testId="cloud-tab" min-height=44 flex=1 background-color=(cloudTab ? "#353535" : "#191919") border-radius=8
+                    text "Cloud"
+                if cloudTab
+                  text "ANSUZ RECORDING HISTORY" font-size=10 letter-spacing="0.12em" color="#999999"
+                  if not cloudState.connected
+                    text "Log in with your everything account." font-size=15
+                    text "Your recordings stay private. Device-only takes are added to an account only when you choose." font-size=12 color="#aaaaaa"
+                    input value=cloudHandle input=cloudHandleChange testId="cloud-handle" placeholder="handle.example or did:plc:…" aria-label="Everything account handle or DID" min-height=44 padding=10 background-color="#252525" border-radius=8
+                    button press=cloudConnect testId="cloud-login" min-height=44 background-color="#dddddd" color="#111111" border-radius=8 disabled=(pending(cloudResult) or pending(cloudDownload) or not cloudState.ready)
+                      text "Log in"
+                    if pending(cloudResult)
+                      button press=cloudDisconnect min-height=44 background-color="#252525" border-radius=8
+                        text "Cancel sign-in"
+                  else
+                    text cloudState.principal testId="account-did" font-size=11 overflow-wrap="anywhere" color="#cccccc"
+                    text "Sync uploads only this account’s saved takes." font-size=12 color="#aaaaaa"
+                    row gap=8
+                      button press=cloudSync testId="cloud-sync" min-height=44 flex=1 background-color="#dddddd" color="#111111" border-radius=8 disabled=(pending(cloudResult) or pending(cloudDownload))
+                        text "Sync"
+                      button press=cloudDisconnect min-height=44 flex=1 background-color="#252525" border-radius=8
+                        text "Sign out"
+                    button press=cloudShare testId="cloud-share" min-height=44 background-color="#252525" border-radius=8 disabled=(pending(cloudResult) or pending(cloudDownload))
+                      text (cloudState.shared ? "Revoke agent access" : "Share history with studio agent")
+                    text (cloudState.shared ? "Studio agent can read and download your original takes." : "History is private to this account.") font-size=12 color="#aaaaaa"
+                    for take in cloudState.items key=take.id
+                      column padding=12 gap=8 background-color="#191919" border-radius=12
+                        text take.label font-size=15 font-weight=500
+                        text formatDate(take.captured, 0, "iso") font-size=10 color="#999999"
+                        text take.expected font-size=12 color="#aaaaaa"
+                        button press=cloudFetch(take.digest) min-height=44 background-color="#303030" border-radius=8 disabled=(pending(cloudResult) or pending(cloudDownload))
+                          text "Load for replay"
+                    if cloudState.more
+                      button press=cloudMore min-height=44 background-color="#252525" border-radius=8 disabled=(pending(cloudResult) or pending(cloudDownload))
+                        text "Older takes"
+                  if pending(cloudResult) or pending(cloudDownload)
+                    text "Working…" font-size=12 color="#dddddd"
+                  text cloudState.status font-size=12 color="#aaaaaa"
+                  text cloudState.error font-size=12 color="#e0bbbb"
+                  text cloudLoadError font-size=12 color="#e0bbbb"
+                else
+                  text (cloudState.connected ? "THIS ACCOUNT · ON THIS DEVICE" : "DEVICE ONLY · NOT ASSIGNED TO AN ACCOUNT") font-size=10 letter-spacing="0.08em" color="#999999"
+                  if labTakes.items.length == 0
+                    text (labTakes.ready ? "No takes yet. Record a gesture to begin." : "Loading device takes…") font-size=14 color="#aaaaaa"
+                  for take in labTakes.items key=take.id
+                    column padding=12 gap=8 background-color="#191919" border-radius=12
+                      text take.label font-size=15 font-weight=500
+                      if take.expected != ""
+                        text take.expected font-size=12 color="#aaaaaa"
+                      row gap=8
+                        button press=labLoad(take.json, take.expected) min-height=44 flex=1 border-radius=8 background-color="#303030"
+                          text "Load"
+                        button press=labCopy(take.json) min-height=44 flex=1 border-radius=8 background-color="#303030"
+                          text "Copy JSON"
+                        button press=labDelete(take.id) disabled=pending(labSaved) min-height=44 min-width=58 border-radius=8 background-color="#202020" aria-label="Delete this saved take"
+                          text "Delete"
+                  if cloudState.connected and labTakes.unassigned.length > 0
+                    button press=toggleDeviceOnly testId="unassigned-takes" min-height=44 background-color="#252525" border-radius=8
+                      text (showDeviceOnly ? "Hide device-only takes" : "Add device-only takes to this account")
+                    if showDeviceOnly
+                      text "Choosing Add assigns this take to the signed-in account. Sync uploads it afterward." font-size=12 color="#aaaaaa"
+                      for take in labTakes.unassigned key=take.id
+                        row gap=8 align-items="center"
+                          text take.label flex=1 font-size=13
+                          button press=claimDeviceTake(take.id) disabled=pending(labSaved) min-height=44 padding=10 background-color="#303030" border-radius=8
+                            text "Add to this account"
+                  text labSaveError color="#e0bbbb" font-size=12
+                  text labTakes.error color="#e0bbbb" font-size=12
+                  if labCopied
+                    text "JSON copied." font-size=12 color="#cccccc"
+          if not labLibrary
+            column padding="10px 16px 14px" gap=8 flex-shrink=0
+              row gap=6
+                if orbit.lab_recording or orbit.lab_replaying
+                  button press=labCommand("stop") testId="lab-stop" flex=1 min-height=44 border-radius=10 background-color="#dddddd" color="#111111"
+                    text "Stop"
+                else
+                  button press=labRecord testId="lab-record" flex=1 min-height=44 border-radius=10 background-color="#dddddd" color="#111111" disabled=(not labTakes.ready or not cloudState.ready or pending(labSaved))
+                    text "Record"
+                button press=labReplay testId="lab-replay" flex=1 min-height=44 border-radius=10 background-color="#252525" disabled=(not orbit.lab_ready or orbit.lab_recording or orbit.lab_replaying)
+                  text "Replay"
+                button press=labCommand("reset") testId="lab-reset" min-width=64 min-height=44 border-radius=10 background-color="#252525" disabled=orbit.lab_recording
+                  text "Center"
+              input value=labNote input=labEditNote testId="lab-note" placeholder="What should this gesture do?" aria-label="Expected gesture behavior" min-height=44 padding=10 border-radius=10 background-color="#191919" color="#dddddd" font-size=13 disabled=(orbit.lab_recording or orbit.lab_replaying)
+              text (orbit.lab_recording ? "Recording finger input and response · up to 20s" : (labElement == 0 ? "Record → flick → catch → tiny drag → hold → Stop" : "Record resets the exercise · release to rest · Center to restart")) testId="lab-help" font-size=11 color="#aaaaaa"
+              if labSaveError != ""
+                text labSaveError font-size=12 color="#e0bbbb"
+                row gap=8
+                  button press=labSaveAgain disabled=pending(labSaved) min-height=44 flex=1 background-color="#252525"
+                    text "Retry save"
+                  button press=labCopy(labTrace) min-height=44 flex=1 background-color="#252525"
+                    text "Copy unsaved JSON"
+              if orbit.lab_error != ""
+                text orbit.lab_error font-size=12 color="#e0bbbb"
       else
         column width="100%" height="100%" box-sizing="border-box" padding-top="env(safe-area-inset-top, 0px)" padding-bottom="env(safe-area-inset-bottom, 0px)" background-color="#0d0d0d" color="#e7e7e7" color-scheme="dark" accent-color="#dddddd"
           row padding="16px" gap=8 align-items="center" justify-content="space-between" flex-shrink=0
             column gap=4
               text "ANSUZ" letter-spacing="0.22em" font-size=16 font-weight=600
               text "Orbital playground" font-size=12 color="#9e9e9e"
+            button press=openLab testId="gesture-lab" min-height=44 padding=10 border-radius=12 background-color="#232323"
+              text "Lab"
             button press=showStudy("touch") testId="touch-study" min-height=44 padding=10 border-radius=12 background-color="#232323" aria-label="Open the original touch playground"
-              text "2D study"
+              text "2D"
             button press=orbitReset testId="orbit-reset" min-height=44 padding=10 border-radius=12 background-color="#232323" aria-label="Reset orbital orientation"
               text "Reset"
           row padding="0px 20px 12px" gap=6 flex-shrink=0
@@ -151,6 +457,6 @@ component Ansuz
                 text orbit.cell testId="orbit-cell" font-variant-numeric="tabular-nums" font-size=19 font-weight=500
               column gap=4 align-items="flex-end"
                 text "ALTITUDE / LOCKED" font-size=10 letter-spacing="0.1em" color="#898989"
-                text `${round(orbit.altitude * 10) / 10} UNITS` testId="orbit-altitude" font-variant-numeric="tabular-nums" font-size=11 color="#b7b7b7"
+                text `${round(orbit.altitude * 10) / 10} ${orbit.altitude == 1 ? "UNIT" : "UNITS"}` testId="orbit-altitude" font-variant-numeric="tabular-nums" font-size=11 color="#b7b7b7"
             text orbit.mode testId="orbit-state" font-size=12 color="#aaaaaa"
             text (media.prefersReducedMotion ? "Drag to revolve · reduced motion, no drift" : "Drag to revolve · lift to drift · touch to catch") testId="orbit-help" font-size=12 color="#aaaaaa"
