@@ -30,6 +30,11 @@ pub struct Elements {
     pub grabbed: bool,
     pub ticks: u32,
     pub particles: Vec<Particle>,
+    /// Original pose recognizer, only for replaying model-1 Earth evidence.
+    pub earth_legacy: bool,
+    earth_peak: f32,
+    earth_age: f32,
+    earth_fired: bool,
     origin: Vec2,
     last: Vec2,
     offset: Vec2,
@@ -78,6 +83,10 @@ impl Elements {
             (2, 0) => "GRAB · CIRCLE",
             (2, 1) => "KEEP CIRCLING",
             (2, _) => "VORTEX",
+            (3, 0) if !self.earth_legacy => "SWEEP UP · THEN DOWN",
+            (3, 1) if !self.earth_legacy => "GATHERING",
+            (3, 2) if !self.earth_legacy => "TURN · DRIVE DOWN",
+            (3, 3) if !self.earth_legacy => "DRIVE DOWN",
             (3, 0) => "BRACE",
             (3, 1) => "ROOTING",
             (3, 2) => "LIFT TO THE MARK",
@@ -103,7 +112,11 @@ impl Elements {
         self.energy = (self.energy - dt * if self.kind == 1 { 0.24 } else { 0.19 }).max(0.);
         self.spin *= math::exp(-2. * dt);
         if c.began {
-            self.grabbed = (p - self.object).abs().max_element() <= SIZE * 0.8;
+            self.grabbed = (self.kind == 3 && !self.earth_legacy)
+                || (p - self.object).abs().max_element() <= SIZE * 0.8;
+            self.earth_peak = p.y;
+            self.earth_age = 0.;
+            self.earth_fired = false;
             self.origin = p;
             self.last = p;
             self.offset = self.object - p;
@@ -113,7 +126,7 @@ impl Elements {
             self.prepared = false;
             self.winding = 0.;
             self.charge = 0.;
-            if self.energy < 0.01 {
+            if self.energy < 0.01 || (self.kind == 3 && !self.earth_legacy) {
                 self.phase = 0;
             }
         }
@@ -176,6 +189,37 @@ impl Elements {
                     }
                     if self.phase == 0 {
                         self.phase = 1;
+                    }
+                }
+                3 if !self.earth_legacy => {
+                    // A demonstrated sweep is a sequence, independent of screen position
+                    // and lateral arc: gather upward, then commit with a downward return.
+                    // A release/cancel cannot complete it, nor can a single-frame jump.
+                    self.earth_age += dt;
+                    if !self.earth_fired && c.down && self.earth_age <= 4. {
+                        if self.phase < 2 && p.y > self.origin.y {
+                            self.origin.y = p.y;
+                            self.earth_peak = p.y;
+                        }
+                        self.earth_peak = self.earth_peak.min(p.y);
+                        let rise = (self.origin.y - self.earth_peak).max(0.);
+                        let returning = (p.y - self.earth_peak).max(0.);
+                        self.charge = (rise / 0.8).min(1.);
+                        if rise >= 0.4 && self.earth_age >= 0.12 {
+                            self.phase = if returning > 0.08 { 3 } else { 2 };
+                            if returning >= (rise * 0.55).max(0.22) && self.earth_age >= 0.25 {
+                                self.earth_fired = true;
+                                self.phase = 4;
+                                self.energy = 1.;
+                                self.charge = 0.;
+                                self.triggers += 1;
+                            }
+                        } else {
+                            self.phase = 1;
+                        }
+                    } else if !self.earth_fired {
+                        self.charge = 0.;
+                        self.phase = 0;
                     }
                 }
                 3 => {
@@ -320,6 +364,13 @@ impl Elements {
     }
     pub fn pixels(&self) -> Vec<Pixel> {
         let mut out = vec![Pixel::default(); PIXELS];
+        let earth_height =
+            self.energy
+                .max(if self.kind == 3 && !self.earth_legacy && self.grabbed {
+                    self.charge * 0.65
+                } else {
+                    0.
+                });
         let time = if self.reduced {
             0.
         } else {
@@ -355,10 +406,10 @@ impl Elements {
                     };
                     v.visible = true;
                 }
-                3 if self.energy > 0.005 && i < 120 => {
+                3 if earth_height > 0.005 && i < 120 => {
                     let x = (i % 12) as f32 - 5.5;
                     let row = (i / 12) as f32;
-                    v.position = self.object + Vec2::new(x * 0.027, -row * 0.034 * self.energy);
+                    v.position = self.object + Vec2::new(x * 0.027, -row * 0.034 * earth_height);
                     v.size = 0.025;
                     let grey = 0.17 + unit(i, 2) * 0.2;
                     v.color = [grey, grey * 0.91, grey * 0.78];
@@ -377,7 +428,7 @@ impl Elements {
             v.position = (v.position / 0.012).round() * 0.012;
         }
         // A quiet target mark teaches the earth finish without an opaque tutorial.
-        if self.kind == 3 && (self.phase == 2 || self.phase == 3) {
+        if self.kind == 3 && self.earth_legacy && (self.phase == 2 || self.phase == 3) {
             for (j, v) in out[236..].iter_mut().enumerate() {
                 *v = Pixel {
                     position: self.origin - Vec2::Y * 0.32

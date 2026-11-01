@@ -86,7 +86,7 @@ component Ansuz
   state study = "orbit"
   state labFlat = true
   state labElement = 0
-  derive elementHelp = labElement == 1 ? "Hold the cube still. Draw slowly, then strike fast." : (labElement == 2 ? "Grab the cube. Trace a steady circle around its center." : (labElement == 3 ? "Hold still. Lift to the mark. Hold that pose." : "Grab the cube. Fan it back and forth through the field."))
+  derive elementHelp = labElement == 1 ? "Hold the cube still. Draw slowly, then strike fast." : (labElement == 2 ? "Grab the cube. Trace a steady circle around its center." : (labElement == 3 ? "Sweep upward, then drive back down. Start anywhere in the field." : "Grab the cube. Fan it back and forth through the field."))
   action chooseElement(value: number)
     labElement = value
     labFlat = true
