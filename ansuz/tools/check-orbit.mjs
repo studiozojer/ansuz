@@ -64,6 +64,28 @@ try {
  const beforeButton=(await state()).resources.Navigation.orientation;await el('orbit-east').tap();await frames(3);
  assert(!same((await state()).resources.Navigation.orientation,beforeButton),'Directional button did not move');
  console.log('PASS seamless mode switch, reduced motion, reset, directional button');
+
+ // Traverse the reported -X -> -Y join through actual controls, keeping
+ // screen-space motion independent of the face-local coordinate labels.
+ for(const mode of ['spin','fly']) {
+  await el(mode+'-mode').tap();await el('orbit-reset').tap();await rest();await frames(3);
+  for(let i=0;i<37;i++){await el('orbit-west').tap();await frames(2);}
+  let previous=await state();let crossed=false;
+  assert.match(previous.published.cell,/^−X/);
+  for(let i=0;i<40;i++) {
+   await el('orbit-south').tap();await frames(2);const next=await state();
+   const a=previous.resources.Navigation.orientation,b=next.resources.Navigation.orientation;
+   const dot=Math.min(1,Math.abs(a.reduce((sum,v,k)=>sum+v*b[k],0))/Math.hypot(...a)/Math.hypot(...b));
+   assert(Math.abs(2*Math.acos(dot)-.035)<.0001,'Seam crossing changed the navigation step');
+   if(previous.published.cell.startsWith('−X')&&next.published.cell.startsWith('−Y')) {
+    crossed=true;await page.screenshot({path:resolve(out,`seam-${mode}.png`)});
+   }
+   previous=next;
+  }
+  assert(crossed,'Must traverse the reported negative X/Y join');
+ }
+ console.log('PASS -X to -Y seam: bounded motion in both modes');
+
  await page.setViewportSize({width:320,height:640});await frames(4);
  for(const id of ['touch-study','orbit-reset','spin-mode','fly-mode','orbit-west','orbit-north','orbit-south','orbit-east']) {
   const b=await el(id).boundingBox();assert(b&&b.x>=0&&b.x+b.width<=320.5,`${id} outside narrow screen`);assert(b.height>=44,`${id} too short`);

@@ -41,7 +41,7 @@ struct Hud {
     motion: String,
     altitude: f32,
 }
-fn draw(w: &mut World, n: &Navigation) {
+fn draw(w: &mut World, n: &Navigation, previous_cell: Option<Cell>) {
     let flying = n.mode == 1;
     let (camera, globe) = poses(n.orientation, flying);
     *w.require_mut::<Transform>("camera") = camera;
@@ -55,11 +55,18 @@ fn draw(w: &mut World, n: &Navigation) {
             let (a, b) = edge(cell, index);
             let a = globe.rotation * a;
             let b = globe.rotation * b;
-            *w.require_mut::<Transform>(&name) = Transform {
+            let pose = Transform {
                 position: (a + b) * 0.5,
                 rotation: Quat::from_rotation_arc(Vec3::Y, (b - a).normalize()),
                 scale: Vec3::new(0.009, a.distance(b) + 0.005, 0.009),
             };
+            if Some(cell) != previous_cell {
+                // A different cell has different edges, especially across cube
+                // faces. Replace its outline without morphing unrelated sides.
+                w.teleport(w.named(&name).unwrap(), pose);
+            } else {
+                *w.require_mut::<Transform>(&name) = pose;
+            }
         }
     }
     w.publish_record(&Hud {
@@ -166,10 +173,11 @@ impl Game for Ansuz {
                 ),
             );
         }
-        draw(w, &n);
+        draw(w, &n, None);
     }
     fn tick(w: &mut World, input: &Input, args: &Options) {
         let mut n = *w.resource::<Navigation>();
+        let previous_cell = target(n.orientation, n.mode == 1);
         let dt = w.dt();
         if n.home != args.home || input.pressed("recenter") {
             n = Navigation {
@@ -252,6 +260,6 @@ impl Game for Ansuz {
             w.busy("orbital drift");
         }
         *w.resource_mut::<Navigation>() = n;
-        draw(w, &n);
+        draw(w, &n, previous_cell);
     }
 }
