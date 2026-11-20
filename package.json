@@ -8,9 +8,13 @@
     "build:simulator": "eas build --platform ios --profile simulator",
     "check:delivery": "node --test scripts/delivery.test.cjs",
     "build:ios:local": "bash scripts/patch-exact.sh && \"${BUN:-bun}\" ansuz/exact.mjs ios --device --run",
-    "web": "cd stratum-007 && ./exact.mjs web",
-    "test:reading": "cd stratum-007 && ./exact.mjs test web",
-    "web:shared": "node stratum-007/tools/shared-preview.mjs"
+    "web": "cd stratum-008 && ./exact.mjs web",
+    "test:reading": "cd stratum-008 && ./exact.mjs test web",
+    "web:shared": "node stratum-007/tools/shared-preview.mjs",
+    "web:007": "cd stratum-007 && ./exact.mjs web",
+    "test:reading:007": "cd stratum-007 && ./exact.mjs test web",
+    "setup:008": "node stratum-008/tools/import-zhouyi.mjs",
+    "build:offline": "npm --prefix stratum-008 run build"
   },
   "devDependencies": {
     "eas-cli": "27.2.0",

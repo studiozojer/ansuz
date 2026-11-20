@@ -11,3 +11,7 @@ The Jera implementation checkpoint is `zojercommons/projects/jera/specs/2026-10-
 Before calling Ansuz login aligned, complete a real existing-account authorization on the phone, verify the DID and recording ownership, test account switching and relaunch, and reject unverified identity claims. Inventory existing cloud ownership before migration. Preserve old recordings and local files; never guess an email-to-DID mapping or reset the service. Separately define authenticated operator onboarding before retiring its legacy account.
 
 Current status: the deployed service and installed native build now use the ATproto authorization flow. Password/guest creation is disabled, principals come from verified DIDs, device recordings are owner-scoped, and older device-only takes require explicit assignment. The migration preserved cloud rows and the original local recording file. Automated protocol, account-isolation and restore evidence is tracked in the account-handling checkpoint. Real existing-account authorization and relaunch on the phone are awaiting David's confirmation; this remains an acceptance limit, not a claim established by installation or provider fixtures.
+
+## Casts and continuations
+
+A reader can cast, read, annotate and follow up offline before signing in. Only the timestamp enters the on-device Jianyi calculation. The question and notes stay in the Ansuz library. A continuation names its parent by stable cast ID. Future reading interfaces can use those same records.

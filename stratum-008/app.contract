@@ -1,0 +1,272 @@
+font "Whyte" = "assets/fonts/ABCWhyte-Regular.otf"
+font "Whyte Inktrap" = "assets/fonts/ABCWhyteInktrap-Regular.otf"
+font "Fraktion" = "assets/fonts/PPFraktionMono-Regular.otf"
+
+shape Time
+  epochAtZero: number
+  utcOffset: number
+shape CastSummary
+  id: string
+  question: string
+  title: string
+  parentId: string
+shape Library
+  selectedId: string
+  casts: CastSummary[]
+shape ChangingLine
+  position: number
+  text: string
+  commentary: string
+shape FigureLine
+  position: number
+  yang: bool
+  changing: bool
+shape Reading
+  openLine: number
+  chinese: string
+  castAt: number
+  figureLines: FigureLine[]
+  id: string
+  question: string
+  notes: string
+  parentId: string
+  seed: string
+  primary: number
+  resulting: number
+  nuclear: number
+  title: string
+  glyph: string
+  judgment: string
+  image: string
+  lines: ChangingLine[]
+  resultingTitle: string
+  resultingGlyph: string
+  nuclearTitle: string
+  attribution: string
+shape Reply
+  ok: bool
+  id: string
+  error: string
+
+component App
+  resource time = exactTime() as shape Time
+  resource library = loadLibrary() as shape Library
+  resource reading = loadReading(library.selectedId) as shape Reading
+  state screen = "resume"
+  state question = ""
+  state parent = ""
+  state draftId = ""
+  state draft = ""
+  derive showingReading = screen == "resume" and library.selectedId != ""
+  derive dirty = draftId == reading.id and draftId != "" and draft != reading.notes
+  derive busy = pending(created) or pending(opened) or pending(saved)
+  mutation created as shape Reply refreshes library then afterCreate
+  mutation opened as shape Reply refreshes library then afterOpen
+  mutation passage as shape Reply refreshes reading
+  mutation saved as shape Reply refreshes reading
+  derive createError = match created { case some(r) => r.error, case none => "" }
+  derive openError = match opened { case some(r) => r.error, case none => "" }
+  derive passageError = match passage { case some(r) => r.error, case none => "" }
+  derive saveError = match saved { case some(r) => r.error, case none => "" }
+
+  action newCast(parentId: string)
+    parent = parentId
+    question = ""
+    screen = "cast"
+  action resume
+    screen = "resume"
+  action journal
+    screen = "journal"
+  action editQuestion(value: string)
+    question = value
+  action cast
+    if not busy
+      send created = recordCast(time.epochAtZero + performanceNow(), question, parent)
+  action afterCreate
+    match created
+      case some(r)
+        if r.ok
+          screen = "resume"
+          question = ""
+          parent = ""
+          draftId = ""
+      case none
+        parent = parent
+  action open(id: string)
+    if not busy
+      send opened = openCast(id)
+  action afterOpen
+    match opened
+      case some(r)
+        if r.ok
+          screen = "resume"
+          draftId = ""
+      case none
+        parent = parent
+  action toggleLine(position: number)
+    if not pending(passage)
+      send passage = setOpenLine(reading.id, reading.openLine == position ? 0 : position)
+  action editNotes(value: string)
+    draftId = reading.id
+    draft = value
+  action save
+    if dirty and not busy
+      send saved = updateNotes(reading.id, draft)
+  action discard
+    draftId = ""
+    draft = ""
+  action retry
+    refresh library
+    refresh reading
+
+  view
+    main width="100%" height="100%" overflow-y="auto" font-family="Whyte" color="light-dark(#191B18, #FEFFFF)" background-color="light-dark(#F9F2E7, #1A1714)" testId="app"
+      column width="100%" max-width="40rem" box-sizing="border-box" margin="0 auto" padding="16px 20px 48px" gap=24
+        row align-items="center" justify-content="space-between" gap=8
+          text "Ansuz" font-family="Whyte Inktrap" font-size=20 role="heading" aria-level=1
+          row align-items="center" gap=12
+            if screen != "journal" and library.casts.length > 0
+              button press=journal disabled=(dirty or busy) appearance="none" min-height=44 testId="journal"
+                text "Journal" font-size=16
+            if showingReading or screen == "journal"
+              button press=newCast("") disabled=(dirty or busy) appearance="none" min-height=44 testId="new-cast"
+                text "New cast" font-size=16
+        if failed(library)
+          text "The journal could not be opened."
+          button press=retry
+            text "Try again"
+        else if pending(library) and library.selectedId == "" and library.casts.length == 0
+          text "Opening journal…" font-family="Fraktion" font-size=12
+        else if screen == "journal"
+          column gap=20
+            text "Journal" role="heading" aria-level=2 font-family="Whyte Inktrap" font-size=32
+            for item in library.casts key=item.id
+              button press=open(item.id) disabled=busy appearance="none" text-align="left" padding="12px 0" min-height=48 border-bottom="1px solid light-dark(#deded9, #3c3c37)" testId=`journal-${item.id}`
+                column gap=4 align-items="flex-start"
+                  text item.title font-size=20
+                  if item.question != ""
+                    text item.question font-size=16
+                  if item.parentId != ""
+                    text "Continuation" font-family="Fraktion" font-size=12 color="light-dark(#62635c, #c1c4bf)"
+            if library.casts.length == 0
+              text "No casts yet."
+        else if showingReading
+          if failed(reading)
+            text "The reading could not be opened."
+            button press=retry
+              text "Try again"
+          else if reading.id == "" or reading.id != library.selectedId
+            text "Opening reading…" font-family="Fraktion" font-size=12
+          else
+            column gap=24
+              column gap=8
+                text reading.chinese font-family="Whyte Inktrap" font-size=32
+                text reading.title font-family="Whyte Inktrap" font-size=24 role="heading" aria-level=2 testId="reading-title"
+                if reading.question != ""
+                  text reading.question font-size=18 testId="reading-question"
+                text formatDate(reading.castAt, time.utcOffset, "medium") font-family="Fraktion" font-size=12 color="light-dark(#62635c, #c1c4bf)"
+              row justify-content="center" align-items="center" gap=24 padding=20 border-radius=8 background-color="light-dark(#F2EADE, #2C2721)" aria-label="Hexagrams"
+                column gap=4 align-items="center"
+                  column width=72 gap=4 aria-label=reading.title
+                    for bar in reading.figureLines key=bar.position
+                      row width=72 height=7 position="relative" gap=12 aria-hidden=true
+                        if bar.yang
+                          row width=72 height=7 background-color="light-dark(#191B18, #FEFFFF)"
+                        else
+                          row width=30 height=7 background-color="light-dark(#191B18, #FEFFFF)"
+                          row width=30 height=7 background-color="light-dark(#191B18, #FEFFFF)"
+                        if bar.changing
+                          if bar.yang
+                            row position="absolute" left=31 top=-1 width=10 height=10 box-sizing="border-box" border-radius=5 border="2px solid light-dark(#945406, #F7B667)" background-color="light-dark(#F2EADE, #2C2721)"
+                          else
+                            text "×" position="absolute" left=31 top=-6 width=10 font-size=14 text-align="center" color="light-dark(#945406, #F7B667)"
+                  text `Primary · ${reading.primary}` font-family="Fraktion" font-size=12 testId="primary"
+                if reading.resulting != 0
+                  text "→" font-size=20 color="light-dark(#62635c, #c1c4bf)"
+                  column gap=4 align-items="center"
+                    column width=72 gap=4 aria-label=reading.resultingTitle
+                      for bar in reading.figureLines key=bar.position
+                        if (bar.yang and not bar.changing) or (not bar.yang and bar.changing)
+                          row width=72 height=7 background-color="light-dark(#191B18, #FEFFFF)" aria-hidden=true
+                        else
+                          row width=72 height=7 gap=12 aria-hidden=true
+                            row width=30 height=7 background-color="light-dark(#191B18, #FEFFFF)"
+                            row width=30 height=7 background-color="light-dark(#191B18, #FEFFFF)"
+                    text `Becoming · ${reading.resulting}` font-family="Fraktion" font-size=12 testId="resulting"
+              if reading.judgment != ""
+                column gap=8
+                  text "Judgment" role="heading" aria-level=3 font-family="Fraktion" font-size=12 color="light-dark(#62635c, #c1c4bf)"
+                  text reading.judgment font-size=18 line-height=1.45 testId="judgment"
+              if reading.image != ""
+                column gap=8
+                  text "Image" role="heading" aria-level=3 font-family="Fraktion" font-size=12 color="light-dark(#62635c, #c1c4bf)"
+                  text reading.image font-size=18 line-height=1.45
+              if reading.lines.length > 0
+                column gap=12
+                  text "Changing lines" role="heading" aria-level=3 font-family="Fraktion" font-size=12 color="light-dark(#62635c, #c1c4bf)"
+                  for line in reading.lines key=line.position
+                    column gap=4 padding="0 12px" border-radius=6 border-left="2px solid light-dark(#c98e4b, #b78347)" background-color="light-dark(#F2EADE, #2C2721)" testId=`line-${line.position}`
+                      button press=toggleLine(line.position) disabled=pending(passage) appearance="none" aria-expanded=(reading.openLine == line.position) min-height=48 text-align="left" testId=`disclose-${line.position}`
+                        row justify-content="space-between" align-items="center"
+                          text `Line ${line.position}` font-size=16 font-family="Fraktion"
+                          text (reading.openLine == line.position ? "−" : "+") aria-hidden=true font-size=18 color="light-dark(#62635c, #c1c4bf)"
+                      if reading.openLine == line.position
+                        column gap=12 padding-bottom=16
+                          text line.text font-size=16 line-height=1.45 testId=`line-text-${line.position}`
+                          if line.commentary != ""
+                            text line.commentary font-size=16 line-height=1.45 color="light-dark(#62635c, #c1c4bf)" testId=`commentary-${line.position}`
+              if reading.resulting != 0
+                column gap=4
+                  text "Becoming" font-size=12 font-family="Fraktion" color="light-dark(#62635c, #c1c4bf)"
+                  text reading.resultingTitle font-size=24 font-family="Whyte Inktrap"
+              column gap=4
+                text "Nuclear" font-size=12 font-family="Fraktion" color="light-dark(#62635c, #c1c4bf)"
+                text reading.nuclearTitle font-size=18
+              text reading.attribution font-size=12 font-family="Fraktion" color="light-dark(#62635c, #c1c4bf)"
+              column gap=8
+                text "Notes" role="heading" aria-level=3 font-size=12 font-family="Fraktion" color="light-dark(#62635c, #c1c4bf)"
+                textarea value=(draftId == reading.id ? draft : reading.notes) input=editNotes rows=3 placeholder="The interpretation breathes" aria-label="Notes" testId="notes"
+                row gap=12 align-items="center"
+                  button press=save disabled=(not dirty or busy) testId="save-notes"
+                    text "Save notes"
+                  if dirty
+                    button press=discard disabled=busy appearance="none"
+                      text "Discard edit"
+                  else if draftId == reading.id and not pending(saved)
+                    text "Notes saved." testId="notes-saved" font-size=12 font-family="Fraktion"
+              if reading.parentId != ""
+                for item in library.casts.filter(c => c.id == reading.parentId) key=item.id
+                  column gap=4
+                    text "Continued from" font-size=12 font-family="Fraktion" color="light-dark(#62635c, #c1c4bf)"
+                    button press=open(item.id) disabled=(dirty or busy) appearance="none" text-align="left" min-height=44 testId="parent"
+                      text (item.question != "" ? item.question : item.title)
+              if library.casts.filter(c => c.parentId == reading.id).length > 0
+                column gap=4
+                  text "Continuations" font-size=12 font-family="Fraktion" color="light-dark(#62635c, #c1c4bf)"
+                  for item in library.casts.filter(c => c.parentId == reading.id) key=item.id
+                    button press=open(item.id) disabled=(dirty or busy) appearance="none" text-align="left" min-height=44 testId=`child-${item.id}`
+                      text (item.question != "" ? item.question : item.title)
+              button press=newCast(reading.id) disabled=(dirty or busy) align-self="flex-start" testId="continue"
+                text "Continue this cast"
+        else
+          column gap=20
+            if parent != ""
+              text "Continue this cast" font-family="Fraktion" font-size=12 color="light-dark(#62635c, #c1c4bf)"
+              for item in library.casts.filter(c => c.id == parent) key=item.id
+                text (item.question != "" ? item.question : item.title) font-size=20
+            else
+              text "易" font-size=64 font-family="Whyte Inktrap" aria-label="Change"
+            text (parent != "" ? "What do you hold now?" : "What do you hold?") role="heading" aria-level=2 font-family="Whyte Inktrap" font-size=32
+            textarea value=question input=editQuestion rows=3 placeholder="A question, or nothing" aria-label="Question" testId="question"
+            text "The moment determines the cast." font-size=12 font-family="Fraktion" color="light-dark(#62635c, #c1c4bf)"
+            button press=cast disabled=(busy or pending(time)) appearance="none" background-color="light-dark(#3D403B, #F2E9D9)" color="light-dark(#ffffff, #191b18)" border-radius=6 min-height=48 testId="cast"
+              text (pending(created) ? "Casting…" : "Cast")
+            if library.selectedId != ""
+              button press=resume appearance="none" min-height=44
+                text "Return to reading"
+        if createError != "" or openError != "" or saveError != ""
+          text (createError != "" ? createError : openError != "" ? openError : saveError) color="-exact-system-red"
+        if passageError != ""
+          text passageError color="-exact-system-red"
+        if failed(passage) or failed(created) or failed(opened) or failed(saved)
+          text "The change could not be saved. Try again." color="-exact-system-red"

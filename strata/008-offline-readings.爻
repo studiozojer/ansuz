@@ -1,0 +1,47 @@
+---
+id: ansuz/strata/008-offline-readings
+created: 2026-11-20
+---
+
+# Offline readings
+
+Ask a question, cast, open a changing line, and save a note. Choose Continue to ask a follow-up. Reopen an older reading from the journal to branch from it. On relaunch Ansuz restores the selected cast and the changing line you last opened for that cast.
+
+## Run or edit
+
+Use Bun 1.4.2 and the pinned public Exact SDK. The build also uses a local studio Zhouyi checkout containing the reference revision. The default location is a sibling named `zhouyi`. Set `ZHOUYI_DIR` to its absolute path for a different layout. The setup command reads pinned Git objects into ignored build directories, including the studio fonts. From the Ansuz root:
+
+```sh
+git submodule update --init tooling/exact
+(cd tooling/exact && bun install --frozen-lockfile && bun scripts/exact.mjs setup --platform web)
+npm run setup:008
+npm run web
+```
+
+The live server watches for edits. For the offline release, stop the live server, then run:
+
+```sh
+npm run build:offline
+npm --prefix stratum-008 start -- 8809
+```
+
+Open http://127.0.0.1:8809/ once while the server is running so the service worker can install the bundled assets. Reopen that same address in the same browser profile to access the library offline. A deployed web build requires HTTPS. Clearing that site's data deletes its local library.
+
+## V1 cast library
+
+The public Exact app uses the persistent identity `studio.zojer.ansuz.readings` and SQLite at `app:/data/ansuz-casts.db`. Keep both across future strata. Each cast gets a locally generated ID, the normalized timestamp seed, the original question, the six line values, changing lines, primary, resulting and nuclear figure numbers, and the engine fingerprint. The reading can have an editable note. One optional parent ID identifies the cast being continued. A cast can have several children. The question and notes stay on the device, and only the timestamp enters Jianyi. The [source record](../stratum-008/engine/SOURCES.md) identifies the bundled engine and text.
+
+SQLite schema version 1 keeps the selected cast and each cast's open passage in separate tables. A future interface can display the same library as a graph. Additional links can reference existing cast IDs while preserving what the reader originally continued. Kairos calculation services and jera-snapback account or social storage can be added independently of the offline cast flow.
+
+## Verify
+
+```sh
+(cd stratum-008 && bun test engine/cast.test.ts repository.test.ts)
+npm run test:reading
+npm run build:offline
+npm --prefix stratum-008 run test:offline
+```
+
+The release test needs Python 3 and the SDK's Playwright Chromium installation. It installs the release in a fresh browser profile, stops the origin before the first cast, reads line five of 45 Gathering Together → 16 Enthusiasm, saves a note, continues, closes Chromium, and checks both readings after restarting offline. The engine test also checks nuclear figure 53 for that reference instant, 2026-06-12T21:51:54Z.
+
+The Apple adapter includes Jianyi for arm64 device and simulator. On-device rendering and airplane-mode relaunch still need a compatible public Exact iPhone build. The repository-root iOS delivery scripts target the earlier Exact2 gesture lab.

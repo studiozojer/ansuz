@@ -1,0 +1,16 @@
+/target/
+/dist/
+/dist.*
+/dist-windows/
+/node_modules/
+/app.contract.d.ts
+/.exact/
+/.env.local
+
+# Build inputs restored from the pinned studio checkout by setup:008.
+/assets/fonts/
+/assets/jianyi/
+/modules/apple/jianyi.xcframework/
+/engine/figures.json
+/engine/engine-types.ts
+/engine/wilhelm-de.json

@@ -14,10 +14,10 @@ From the repository root, initialize only the new public SDK and provision its w
 ```sh
 git submodule update --init tooling/exact
 (cd tooling/exact && bun install --frozen-lockfile && bun scripts/exact.mjs setup --platform web)
-npm run web
+npm run web:007
 ```
 
-Run `npm run test:reading` for the Contract interaction test. Stop the web loop before starting a different preview of the same checkout.
+Run `npm run test:reading:007` for the Contract interaction test. Stop the web loop before starting a different preview of the same checkout.
 
 For the shared preview, clone [jera-snapback](https://github.com/studiozojer/jera-snapback) alongside Ansuz and run `npm ci` there. From the Ansuz root:
 

@@ -17,3 +17,4 @@ Named checkpoints at changes of direction. Git retains the implementation; these
 | [005 — elemental gestures](strata/005-elemental-gestures.爻) | Commit introducing this record; prior branch `26bc52c` | Fire, water, earth and air exercises with recorded recognition and response. |
 | [006 — recording history](strata/006-recording-history.爻) | Commit introducing this record; prior branch `326c08f` | Separate Snapback archive, replay downloads and revocable agent access. |
 | [007 — shared reading](strata/007-shared-reading.爻) | Prior main `6bab409` | A question opens into an image or an inquiry; two clients can read the same source post. |
+| [008 — offline readings](strata/008-offline-readings.爻) | Prior main `f8fe0bc` | Cast, read, annotate, and branch on the device using the Zhouyi engine and a versioned local library. |
