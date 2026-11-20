@@ -1,0 +1,9 @@
+{
+  "name": "stratum-007",
+  "private": true,
+  "scripts": {
+    "build": "bun exact.mjs web-build --out dist",
+    "start": "bun exact.mjs serve dist"
+  },
+  "dependencies": {}
+}

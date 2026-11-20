@@ -1,5 +1,9 @@
 # Ansuz
 
+[Stratum 007](strata/007-shared-reading.爻) is the current web experiment. Open a divination question and move between its image and a follow-up inquiry. Run `npm run web` for the standalone sample or `npm run web:shared` with a local jera-snapback checkout to read a synthetic Jera post. The stratum record includes setup and verification.
+
+## Earlier Exact2 playground
+
 An Exact interaction playground for exploring how divination objects should feel in the hand. The opening screen is a greyscale wireframe sphere seen from low orbit. The card playground remains implemented; its entry button is hidden in the streamlined main view. The voxel landscape is preserved in [stratum 001](strata/001-voxel-surfaces.爻) at commit `21f38cc`; [stratum 002](strata/002-interaction-playground.爻) records this change of direction.
 
 The implementation supports **Spin sphere** (fixed camera, rotating globe) and **Fly camera** (fixed globe, camera moving at constant altitude). The main view uses the default spin mode and hides mode switching and reset controls. Switching modes in the retained implementation preserves the relative view and the cell under the cursor. These are deliberately equivalent viewpoints with different world transforms; the mode readout identifies what moves.

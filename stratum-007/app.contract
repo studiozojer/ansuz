@@ -1,0 +1,48 @@
+// daoUI 85fb2ac: reading stream, solid base, text roles and 13/16/20/26/33 type ramp.
+// The serif passages and high-contrast green action belong to this study.
+shape Reading
+  question: string
+  id: string
+  sourceLabel: string
+
+component Ansuz
+  resource reading = reading() as shape Reading
+  state opened = false
+  state lens = "image"
+
+  action toggle
+    opened = not opened
+  action choose(value: string)
+    lens = value
+  action retry
+    refresh reading
+
+  view
+    main testId="root" width="100%" height="100%" overflow-y="auto" background-color="light-dark(#FAF9F6, #1A1714)" color="light-dark(#191B18, #F3F4F4)"
+      column width="100%" max-width="37.5rem" margin="0 auto" box-sizing="border-box" padding="32px 24px 48px"
+        text "Ansuz" role="heading" aria-level=1 font-size=20 font-weight=500 letter-spacing=-0.6
+        column margin-top=48 padding-top=20 border-top-style="solid" border-top-width=1 border-top-color="light-dark(#aaa99e, #56594c)" gap=12
+          if failed(reading)
+            text "The reading couldn’t be loaded." testId="load-error" font-size=16
+            button press=retry testId="retry-reading" min-height=44 align-self="flex-start"
+              text "Try again"
+          else
+            if reading.id == ""
+              text "Loading reading…" testId="loading" font-size=16
+            else
+              text reading.sourceLabel testId="reading-source" font-size=13 color="light-dark(#6C6E6A, #B2B3B4)"
+              text reading.question role="heading" aria-level=2 testId="reading-question" font-family="serif" font-size=33 font-weight=400 line-height=1.15
+              button press=toggle appearance="none" aria-label=(opened ? "Close reading" : "Open reading") aria-expanded=opened aria-controls="reading-body" testId="toggle-reading" align-self="flex-start" min-height=44 padding="0 4px" color="light-dark(#4b5e37, #c2d3ad)"
+                text (opened ? "−  Close reading" : "+  Open reading") font-size=16
+              if opened
+                column id="reading-body" testId="reading-body" margin-top=12 padding-top=20 border-top-width=1 border-top-style="solid" border-top-color="light-dark(#cecec3, #45483d)" gap=16
+                  text "A seed in the dark" role="heading" aria-level=3 font-family="serif" font-size=26 font-weight=400
+                  row role="radiogroup" aria-label="Reading lens" align-self="flex-start" min-height=44
+                    button role="radio" aria-checked=(lens == "image") press=choose("image") testId="image-lens" min-height=44
+                      text "Image"
+                    button role="radio" aria-checked=(lens == "inquiry") press=choose("inquiry") testId="inquiry-lens" min-height=44
+                      text "Inquiry"
+                  if lens == "image"
+                    text "The seed opens below the soil. A root reaches down before a leaf reaches up." testId="image-passage" font-family="serif" font-size=20 line-height=1.6
+                  else
+                    text "What would you keep tending even if no one could see it yet?" testId="inquiry-passage" font-family="serif" font-size=20 line-height=1.6
