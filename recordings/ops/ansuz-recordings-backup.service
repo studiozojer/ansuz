@@ -1,7 +1,0 @@
-[Unit]
-Description=Consistent backup of Ansuz recordings
-
-[Service]
-Type=oneshot
-ExecStart=/opt/ansuz-recordings/backup.sh
-UMask=0077

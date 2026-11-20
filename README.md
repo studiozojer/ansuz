@@ -12,6 +12,8 @@ The original card study remains implemented with its controls, while its main-sc
 
 Recognition, pinch anchoring and the held transform use Exact's native `transformDragFor` binding. Contract supplies the destination on release; there is no per-frame application pointer loop and no transition input lock. The current glide is a bounded spring projection, not a physical friction model. The sample is ephemeral and resets on relaunch. It is not an authored reading.
 
+The [recordings client](recordings/README.md) talks to the Ansuz gateway. Jera and Ansuz share their server implementation in [jera-snapback](https://github.com/studiozojer/jera-snapback).
+
 ## Gesture lab
 
 The lab also contains four **elemental studies** in its 2D field. Choose an element and grab the cube:

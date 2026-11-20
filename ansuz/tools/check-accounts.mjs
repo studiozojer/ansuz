@@ -12,6 +12,12 @@ await new Promise((yes,no)=>{const timer=setTimeout(()=>no(Error(logs)),30000);s
 const browser=await chromium.launch({headless:true,executablePath:chromium.executablePath(),args:['--enable-unsafe-webgpu','--no-sandbox','--use-mock-keychain','--password-store=basic']});let page,releaseAsset,releaseSearch;
 try{
  const context=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true});
+ // Keep Exact's registered callback origin while allowing concurrent local previews.
+ const previewPort = Number(process.env.ANSUZ_PREVIEW_PORT ?? 8768);
+ if (previewPort !== 8768) await context.route('http://127.0.0.1:8768/**', async route => {
+   const url = new URL(route.request().url()); url.port = String(previewPort);
+   await route.fulfill({response: await route.fetch({url: url.href})});
+ });
  let blockUploads=false,dropArchiveAck=false,droppedAcks=0;
  let offline=false,holdAsset=false,assetRequested,holdSearch=false,searchRequested;
  let searches=0,authorizations=0;
@@ -24,7 +30,7 @@ try{
   if(url.pathname==='/oauth/accounts'){searches++;assert.equal(request.headers().authorization,undefined);}
   if(url.pathname==='/oauth/start')authorizations++;
   if(offline || (blockUploads && request.method()==='POST' && url.pathname==='/assets'))return route.abort();
-  const response=await route.fetch({url:'http://127.0.0.1:4435'+url.pathname+url.search,maxRedirects:0});
+  const response=await route.fetch({url:`http://127.0.0.1:${Number(process.env.PORT ?? 4435)}`+url.pathname+url.search,maxRedirects:0});
   if(dropArchiveAck && url.pathname==='/m/archive' && response.ok()){dropArchiveAck=false;droppedAcks++;return route.abort();}
   // Hold an already-authorized success, not a request the server can reject after logout.
   if(holdAsset&&url.pathname.startsWith('/assets/')){assert.equal(response.status(),200);await new Promise(r=>{releaseAsset=r;assetRequested?.()});}
