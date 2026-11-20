@@ -1,6 +1,6 @@
 # Ansuz recording history
 
-Private gesture archives use Snapback **0.4.33** on **https://ansuz.jera.ink**, separately from Jera. People sign in with an existing **ATproto / everything account**. The verified DID owns recordings and permissions; Ansuz has no email/password signup. [PRODUCT.md](../PRODUCT.md) defines the identity contract and current acceptance status.
+The installed recording client uses **https://ansuz.jera.ink**. The shared [jera-snapback](https://github.com/studiozojer/jera-snapback) repository owns its recording schema, OAuth gateway, integration tests and deployment tooling alongside Jera’s server. The existing Ansuz production archive remains on its separate store pending data migration, restore verification and cutover. People sign in with an existing **ATproto / everything account**. The verified DID owns recordings and permissions; Ansuz has no email/password signup. [PRODUCT.md](../PRODUCT.md) defines the identity contract and current acceptance status.
 
 On the sign-in screen, start typing a name or handle and select an account suggestion, then press **Log in**. You can also enter a full handle or DID directly. Suggestions are public discovery, not proof of account control.
 
@@ -12,23 +12,20 @@ The owner-aware file is `gesture-takes-v2.json`. The original `gesture-takes.jso
 
 Each cloud row records its DID owner, captured timestamp, experiment, model version, expected behavior, frame count and SHA-256 of the uploaded JSON. History pages contain metadata and a file reference rather than all frames. The server enforces unique `(owner, digest)`. An uncertain archive-write outcome is resolved by looking up that key on the next Sync, including after restart. Downloads independently verify the checksum. Replay and recognizer changes never rewrite original evidence; future analysis should reference its content identity and model version. Downloads are session replay inputs, not a durable offline cloud cache.
 
-Exact keeps the session under an Ansuz-specific secret namespace. Startup checks the cached DID's authority; offline restoration permits local use of the previously verified account. Remote operations recheck authority. Sign-out forgets the device session immediately and attempts server logout. It does not remove recordings or revoke an already-granted reader. Revoking a reader stops future downloads but cannot erase previously downloaded files. See [auth/README.md](auth/README.md) for protocol and lifetime limits.
+Exact keeps the session under an Ansuz-specific secret namespace. Startup checks the cached DID's authority; offline restoration permits local use of the previously verified account. Remote operations recheck authority. Sign-out forgets the device session immediately and attempts server logout. It does not remove recordings or revoke an already-granted reader. Revoking a reader stops future downloads but cannot erase previously downloaded files. See [the backend authorization contract](https://github.com/studiozojer/jera-snapback/tree/main/auth) for protocol and lifetime limits.
 
 ## Develop and verify
 
-From `recordings/`:
+Clone `studiozojer/jera-snapback` beside a regular Ansuz checkout, or set `JERA_SNAPBACK_DIR` to its absolute path when using a worktree or another layout. In that backend checkout run:
 
 ```sh
 npm ci
 npm ci --prefix auth
 npm run check
 npm test
-npm test --prefix auth
-./node_modules/.bin/snapback4 audit --json
-./node_modules/.bin/snapback4 test --fixture-only
 ```
 
-The integration test uses a disposable real Snapback server with trusted synthetic DID and ordinary operator sessions. It checks bytes, retries, owner isolation, reader grants and revocation, duplicate refusal, restart, disabled passwords and denied identity minting by ordinary sessions. Structural privacy invariants remain unproved for some disclosure paths; finite tests are evidence, not a universal proof.
+From Ansuz’s `recordings/`, `npm run check`, `npm test` and `npm run dev` delegate to that checkout. The shared dev store listens on loopback port 4417. The recorder CLI runs independently of the backend checkout.
 
 From the repo root, build the web app and run `bun ansuz/tools/check-accounts.mjs` for phone-sized UI tests against a simulated provider and actual local auth/storage handlers. `check-cloud.mjs` now delegates to that test; the old password-based live test is retired. Real provider approval on the phone is a separate acceptance check.
 
@@ -46,7 +43,7 @@ node scripts/agent.mjs fetch '<owner-DID>' '<sha256>' /private/path/original-tak
 
 The agent discovers only libraries explicitly shared with its principal. Downloads are checksum-checked before writing a new file. No automatic agent processing runs. Replay measures captured trajectories and simulation response; it does not reproduce physical finger sensation or raw digitizer samples.
 
-Deployment and recovery are in [ops/README.md](ops/README.md).
+Deployment and recovery for the shared server are in [jera-snapback](https://github.com/studiozojer/jera-snapback). The [legacy Ansuz service files](https://github.com/studiozojer/jera-snapback/tree/main/ops/legacy-ansuz) document the currently separate archive.
 
 ## Evaluating Earth changes against a recording
 
@@ -66,6 +63,6 @@ Signed-in captures and explicitly adopted takes enter a durable upload queue in 
 
 The public `/m/archive` endpoint is handled by the authorization service. It authenticates the account with Snapback, downloads the referenced file with that account's bearer, checks the exact SHA-256, validates the versioned trace, and compares its expected response, frame count, experiment, model, and capture timestamp with the submitted metadata. It archives an identical service-owned file copy under the verified account's DID. The Snapback mutation itself permits only `service:atproto-auth`, so direct HTTP mutations or queued sync intents cannot bypass validation. Upload/download bytes remain unchanged; interpretation is separate. Existing archive rows and read grants remain valid.
 
-Deploy the schema, auth modules, and Caddy fragment together using the existing backed-up adoption workflow. Deploy the server before distributing the new app. The existing app's archive request shape remains supported through the gateway. `auth/trace.mjs` implements the server contract corresponding to `ansuz/shared/gesture_trace.rs`; keep their version support and bounds aligned when evolving the format.
+The existing app’s archive request shape remains supported through the gateway. The [server validator](https://github.com/studiozojer/jera-snapback/blob/main/auth/trace.mjs) implements the contract corresponding to `ansuz/shared/gesture_trace.rs`. Evolve their version support and bounds together.
 
 Routine retries check OAuth authority and reuse a still-valid Snapback bearer. Rotation is reserved for the last five minutes of its lifetime, reducing the interrupted-rotation window. Renewal still has the documented crash window between server rotation and local storage; if that occurs, signing in again resumes the preserved queue.

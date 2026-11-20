@@ -6,14 +6,16 @@ import { Readable } from 'node:stream';
 import { mkdtemp, mkdir, copyFile, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve, extname } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { AuthStore } from '../auth/store.mjs';
-import { createHandler, digest } from '../auth/service.mjs';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { randomBytes } from 'node:crypto';
 const root = fileURLToPath(new URL('../', import.meta.url));
+const backend = resolve(process.env.JERA_SNAPBACK_DIR ?? resolve(root, '../../jera-snapback'));
+const { AuthStore } = await import(pathToFileURL(join(backend, 'auth/store.mjs')));
+const { createHandler, digest } = await import(pathToFileURL(join(backend, 'auth/service.mjs')));
+const cli = join(backend, 'node_modules/.bin/snapback4');
 const directory = await mkdtemp(join(tmpdir(), 'ansuz-browser-'));
 await mkdir(join(directory, 'snapback'));
-await copyFile(root + 'snapback/schema.q', join(directory, 'snapback/schema.q'));
+await copyFile(join(backend, 'snapback/schema.q'), join(directory, 'snapback/schema.q'));
 const webRoot = resolve(root, '../ansuz/target/web-dist');
 const preview = createServer(async (req, res) => {
   const pathname = new URL(req.url, 'http://127.0.0.1:8768').pathname;
@@ -25,9 +27,9 @@ const preview = createServer(async (req, res) => {
     res.end(await readFile(file));
   } catch { res.writeHead(404); res.end(); }
 });
-preview.listen(8768, '127.0.0.1');
+await new Promise((yes, no) => preview.once('error', no).listen(Number(process.env.ANSUZ_PREVIEW_PORT ?? 8768), '127.0.0.1', yes));
 const port = Number(process.env.PORT ?? '4435'), upstream = `http://127.0.0.1:${port + 1}`;
-const child = spawn(`${root}node_modules/.bin/snapback4`, ['dev', '--port', String(port + 1), '--no-watch'], { cwd: directory, stdio: 'inherit' });
+const child = spawn(cli, ['dev', '--port', String(port + 1), '--no-watch'], { cwd: directory, stdio: 'inherit' });
 const store = new AuthStore(':memory:');
 const callbacks = ['studio.zojer.ansuz:/oauth','http://127.0.0.1:8768/.exact/auth/callback'];
 const client = {
@@ -44,14 +46,14 @@ const client = {
   callback: async () => { throw new Error('Browser fixture completes authorization in its start route.'); },
   restore: async did => ({ did }),
 };
-const handler = createHandler({ client, store, publicOrigin: 'https://ansuz.jera.ink', callbacks, snapbackOrigin: upstream, serviceToken: 'fixture-only',
+const handler = createHandler({ profile: 'ansuz', client, store, publicOrigin: 'https://ansuz.jera.ink', callbacks, snapbackOrigin: upstream, serviceToken: 'fixture-only',
 searchAccounts: async query => {
   const q=query.toLowerCase(), known='owner.test'.includes(q), fallback=['broken','bare'].includes(q);
   return {query,available:true,complete:true,items:known||fallback?[{did:'did:plc:'+'a'.repeat(24),handle:'owner.test',displayName:'Test Owner',avatar:q==='bare'?'':`https://cdn.bsky.app/img/avatar/plain/${q==='broken'?'broken':'owner'}.gif`}]:[]};
 },
 fetcher: async (url, options) => {
   if (options.headers.authorization === 'Bearer fixture-only') {
-    const token = execFileSync(`${root}node_modules/.bin/snapback4`, ['token', '--service', 'atproto-auth'], { cwd: directory, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+    const token = execFileSync(cli, ['token', '--service', 'atproto-auth'], { cwd: directory, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
     options.headers.authorization = `Bearer ${token}`;
   }
   return fetch(url, options);
