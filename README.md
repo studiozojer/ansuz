@@ -1,6 +1,8 @@
 # Ansuz
 
-[Stratum 007](strata/007-shared-reading.爻) is the current web experiment. Open a divination question and move between its image and a follow-up inquiry. Run `npm run web` for the standalone sample or `npm run web:shared` with a local jera-snapback checkout to read a synthetic Jera post. The stratum record includes setup and verification.
+[Stratum 008](strata/008-offline-readings.爻) brings Zhouyi’s casting and reading flow to Ansuz. Ask a question, cast, read a changing line, save a note, and continue from any cast in the journal. The engine, text, and SQLite library live on the device. Run `npm run web` for the live edit loop or follow the stratum record to try the offline release.
+
+The [007 shared reading](strata/007-shared-reading.爻) runs with `npm run web:007` for the standalone sample or `npm run web:shared` for the two-client Snapback preview.
 
 ## Earlier Exact2 playground
 

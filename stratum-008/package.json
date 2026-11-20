@@ -1,0 +1,9 @@
+{
+  "name": "stratum-008",
+  "private": true,
+  "scripts": {
+    "build": "./exact.mjs web-build --out dist && node tools/prepare-offline.mjs dist",
+    "start": "python3 -m http.server --bind 127.0.0.1 --directory dist",
+    "test:offline": "node tools/test-offline.mjs"
+  }
+}

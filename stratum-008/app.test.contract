@@ -1,0 +1,37 @@
+test "keep a root, its notes, and a follow-up through relaunch"
+  epoch "2026-06-12T21:51:54Z"
+  clock data
+  type "question" "What do I hold?"
+  tap "cast"
+  clock data
+  expect text "primary" == "Primary · 45"
+  expect text "resulting" == "Becoming · 16"
+  tap "disclose-5"
+  clock data
+  expect tree has "line-text-5"
+  tap "disclose-5"
+  clock data
+  expect tree missing "line-text-5"
+  tap "disclose-5"
+  clock data
+  expect tree has "commentary-5"
+  type "notes" "Return to the gathering."
+  tap "save-notes"
+  clock data
+  expect text "notes-saved" == "Notes saved."
+  tap "continue"
+  type "question" "What comes next?"
+  clock +1000
+  tap "cast"
+  clock data
+  expect text "reading-question" == "What comes next?"
+  reload
+  clock data
+  expect text "reading-question" == "What comes next?"
+  tap "parent"
+  clock data
+  expect text "reading-question" == "What do I hold?"
+  expect tree has "commentary-5"
+  expect text "notes" == "Return to the gathering."
+  tap "journal"
+  expect tree has "new-cast"

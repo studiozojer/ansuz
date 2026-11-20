@@ -1,0 +1,28 @@
+{
+  "$schema": ".exact/checkout/scripts/app.schema.json",
+  "name": "Ansuz",
+  "short_name": "Ansuz",
+  "id": "studio.zojer.ansuz.readings",
+  "start_url": "/",
+  "display": "standalone",
+  "app": {
+    "id": "studio.zojer.ansuz.readings",
+    "name": "Ansuz"
+  },
+  "host": {
+    "web": {},
+    "ios": {
+      "minimumOS": "18.0",
+      "deviceFamily": [
+        "iphone",
+        "ipad"
+      ]
+    }
+  },
+  "deploy": {
+    "store": {
+      "web": "0",
+      "ios": "0"
+    }
+  }
+}
