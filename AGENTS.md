@@ -1,6 +1,6 @@
 # Ansuz
 
-Read `PRODUCT.md` before changing identity, storage, sharing or account UI. Work on feature branches and submit PRs. The app lives in `ansuz/`; read its generated `AGENTS.md` for Exact authoring instructions.
+Read `PRODUCT.md` before changing identity, storage, sharing or account UI. Work on feature branches and submit PRs. Current web work is in `stratum-007/` using the pinned public Exact SDK in `tooling/exact`. Read its generated `AGENTS.md` and the [stratum record](strata/007-shared-reading.爻). The earlier Exact2 app lives in `ansuz/` with its own generated instructions and mobile delivery path.
 
 David explicitly authorized local iPhone builds for Ansuz on 2026-10-31, superseding the earlier EAS-only rule for this app. Use `npm run build:ios:local` for a paired physical iPhone, or EAS for cloud builds. Simulator checks still use EAS Simulator; do not run the full Exact `prove` matrix, which invokes additional local native hosts. Hostless Rust tests and browser wasm builds are allowed locally.
 

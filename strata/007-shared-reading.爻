@@ -1,0 +1,34 @@
+---
+id: ansuz/strata/007-shared-reading
+created: 2026-11-20
+---
+
+# Shared reading
+
+Albers’ first public Exact study opens a question with an accordion. Inside, the reader chooses Image or Inquiry. Closing and reopening retains that choice. The synthetic root question and its two authored interpretations are a design specimen. In shared mode the question comes from a Snapback post by ID. The lenses stay authored here.
+
+## Run the web study
+
+From the repository root, initialize only the new public SDK and provision its web toolchain. Use Bun 1.4.2. If your earlier Exact2 build uses a different wasm-bindgen, set a separate `CARGO_INSTALL_ROOT` and put its `bin` first on PATH before setup.
+
+```sh
+git submodule update --init tooling/exact
+(cd tooling/exact && bun install --frozen-lockfile && bun scripts/exact.mjs setup --platform web)
+npm run web
+```
+
+Run `npm run test:reading` for the Contract interaction test. Stop the web loop before starting a different preview of the same checkout.
+
+For the shared preview, clone [jera-snapback](https://github.com/studiozojer/jera-snapback) alongside Ansuz and run `npm ci` there. From the Ansuz root:
+
+```sh
+JERA_SNAPBACK_DIR=../jera-snapback npm run web:shared
+```
+
+The helper starts a disposable loopback Snapback store on a free port, mints an ordinary synthetic writer session, creates one question and reads it back with the Jera client. It starts Exact with the same ID. The Ansuz reader uses the local fixture's named reader persona and refuses non-loopback origins. Shared mode displays a loading error if its post cannot be read. No access token enters the client build. The standalone sample runs without the server.
+
+## Evidence and limits
+
+Public Exact is pinned at `045d6b94`. Chromium rendered the shared post and both depths at 390 × 844. Three warm font-size edits in the standalone preview took 1,010 ms, 688 ms and 733 ms from file write to the new computed font size and two animation frames. These are measurements on Benatky with one Chromium page, not physical-display or iPhone timings.
+
+The earlier recording lab remains in `ansuz/` at the existing Exact2 pin and retains its mobile delivery commands. Production OAuth, archive migration, native rendering and physical-device edit latency are separate from this local study.
